@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -20,11 +22,22 @@ android {
     }
 
     signingConfigs {
-        create("release") {
-            storeFile = rootProject.file("keystore.jks")
-            storePassword = "REDACTED"
-            keyAlias = "clipvault-upload"
-            keyPassword = "REDACTED"
+        // Optional release signing via local.properties (gitignored).
+        // Add these keys to local.properties to enable signed release builds:
+        //   CLIPVAULT_STORE_FILE=keystore.jks
+        //   CLIPVAULT_STORE_PASSWORD=...
+        //   CLIPVAULT_KEY_ALIAS=...
+        //   CLIPVAULT_KEY_PASSWORD=...
+        val signingProps = rootProject.file("local.properties").let { f ->
+            if (f.exists()) Properties().apply { f.inputStream().use(::load) } else null
+        }
+        if (signingProps != null && signingProps.getProperty("CLIPVAULT_STORE_FILE") != null) {
+            create("release") {
+                storeFile = rootProject.file(signingProps.getProperty("CLIPVAULT_STORE_FILE"))
+                storePassword = signingProps.getProperty("CLIPVAULT_STORE_PASSWORD")
+                keyAlias = signingProps.getProperty("CLIPVAULT_KEY_ALIAS")
+                keyPassword = signingProps.getProperty("CLIPVAULT_KEY_PASSWORD")
+            }
         }
     }
 
@@ -36,7 +49,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("release")
+            if (signingConfigs.findByName("release") != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
         debug {
             isMinifyEnabled = false
