@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ClipVault</string>
+
+    <string name="notif_title">Clipboard Manager is active</string>
+    <string name="notif_idle">Waiting for copied text…</string>
+    <string name="action_pause">Pause</string>
+    <string name="action_resume">Resume</string>
+    <string name="action_stop">Stop</string>
+    <string name="channel_name">Clipboard monitor</string>
+    <string name="channel_desc">Keeps clipboard history in sync while the app is in use.</string>
+
+    <!-- Bubble -->
+    <string name="bubble_notif_title">Clipboard bubble is active</string>
+    <string name="bubble_notif_text">Tap the floating bubble to save the current clipboard.</string>
+    <string name="bubble_channel_desc">Controls the floating clipboard bubble overlay.</string>
+    <string name="bubble_content_description">Clipboard bubble</string>
+
+    <!-- Tile -->
+    <string name="tile_label">Clipboard history</string>
+
+    <!-- Widget -->
+    <string name="widget_description">Recent clipboard items</string>
+    <string name="widget_loading">Loading…</string>
+
+    <!-- Accessibility -->
+    <string name="accessibility_service_description">Detects when you copy text in other apps and saves it to your clipboard history. No data leaves your device.</string>
+    <string name="accessibility_grant_failed">Could not open Accessibility settings.</string>
+</resources>

@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="240dp"
+    android:height="240dp"
+    android:viewportWidth="240"
+    android:viewportHeight="240">
+
+    <!-- Soft outer halo (gives the icon "lift") -->
+    <path
+        android:fillColor="#1FFFFFFF"
+        android:pathData="M120,120 m-110,0 a110,110 0 1,0 220,0 a110,110 0 1,0 -220,0" />
+
+    <!-- Clipboard board -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M68,80 L68,184 A12,12 0 0 0 80,196 L160,196 A12,12 0 0 0 172,184 L172,80 A12,12 0 0 0 160,68 L80,68 A12,12 0 0 0 68,80 Z" />
+
+    <!-- Clip top notch -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M96,56 L144,56 A8,8 0 0 1 152,64 L152,80 A4,4 0 0 1 148,84 L92,84 A4,4 0 0 1 88,80 L88,64 A8,8 0 0 1 96,56 Z" />
+
+    <!-- Content line 1 (bold, primary) -->
+    <path
+        android:fillColor="#4F46E5"
+        android:pathData="M84,108 L156,108 A4,4 0 0 1 156,116 L84,116 A4,4 0 0 1 84,108 Z" />
+
+    <!-- Content line 2 (muted) -->
+    <path
+        android:fillColor="#C7D2FE"
+        android:pathData="M84,128 L148,128 A4,4 0 0 1 148,136 L84,136 A4,4 0 0 1 84,128 Z" />
+
+    <!-- Content line 3 (muted, shorter) -->
+    <path
+        android:fillColor="#C7D2FE"
+        android:pathData="M84,148 L132,148 A4,4 0 0 1 132,156 L84,156 A4,4 0 0 1 84,148 Z" />
+
+    <!-- Content line 4 (muted, shortest) -->
+    <path
+        android:fillColor="#C7D2FE"
+        android:pathData="M84,168 L116,168 A4,4 0 0 1 116,176 L84,176 A4,4 0 0 1 84,168 Z" />
+
+</vector>

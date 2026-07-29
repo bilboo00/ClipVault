@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Board body -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M34,40 L34,82 A6,6 0 0 0 40,88 L68,88 A6,6 0 0 0 74,82 L74,40 A6,6 0 0 0 68,34 L40,34 A6,6 0 0 0 34,40 Z" />
+
+    <!-- Clip top notch -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M48,28 L60,28 A4,4 0 0 1 64,32 L64,40 A2,2 0 0 1 62,42 L46,42 A2,2 0 0 1 44,40 L44,32 A4,4 0 0 1 48,28 Z" />
+
+    <!-- Content lines (white, system tints them on themed icons) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M42,54 L66,54 A2,2 0 0 1 66,58 L42,58 A2,2 0 0 1 42,54 Z" />
+
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M42,64 L62,64 A2,2 0 0 1 62,68 L42,68 A2,2 0 0 1 42,64 Z" />
+
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M42,74 L58,74 A2,2 0 0 1 58,78 L42,78 A2,2 0 0 1 42,74 Z" />
+
+</vector>

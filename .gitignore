@@ -1,0 +1,23 @@
+*.iml
+.gradle
+.idea
+.kotlin
+.DS_Store
+build
+local.properties
+.cxx
+__pycache__
+*.pyc
+
+# Generated APK/AAB outputs
+app/build
+
+# Keystore (keep local, don't commit)
+keystore.jks
+
+# Python store assets generators (generated PNGs go to git, scripts optional)
+store_assets/*.py
+
+# Local agent docs (not for public repo)
+AGENTS.md
+GEMINI.md
