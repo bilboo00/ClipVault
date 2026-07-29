@@ -1,6 +1,6 @@
 # ClipVault Privacy Policy
 
-**Last updated:** July 27, 2026
+**Last updated:** July 29, 2026
 
 ## Overview
 
