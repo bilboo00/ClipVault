@@ -53,23 +53,33 @@ class ClipDetailViewModel @Inject constructor(
     val state: StateFlow<ClipDetailState> = idFlow
         .flatMapLatest { id ->
             if (id == 0L) flowOf(ClipDetailState(loading = false))
-            else combine(
-                repository.observeById(id),
-                tagRepository.observeCrossRefsForClip(id),
-                collectionRepository.observeCrossRefsForClip(id),
-                tagRepository.observeAll(),
-                collectionRepository.observeAll()
-            ) { clip, tagIds, collectionIds, tags, collections ->
-                val unlocked = unlockedSet.value.contains(id) || clip?.isLocked == false
-                ClipDetailState(
-                    clip = clip,
-                    loading = false,
-                    unlocked = unlocked,
-                    tagIds = tagIds,
-                    collectionIds = collectionIds,
-                    tags = tags,
-                    collections = collections
-                )
+            else {
+                // unlockedSet must be a source of the combine, otherwise session
+                // unlocks (which write no DB row) never reach the UI state.
+                val clipWithUnlock = combine(
+                    repository.observeById(id),
+                    unlockedSet
+                ) { clip, unlockedIds ->
+                    clip to (unlockedIds.contains(id) || clip?.isLocked == false)
+                }
+                combine(
+                    clipWithUnlock,
+                    tagRepository.observeCrossRefsForClip(id),
+                    collectionRepository.observeCrossRefsForClip(id),
+                    tagRepository.observeAll(),
+                    collectionRepository.observeAll()
+                ) { clipUnlocked, tagIds, collectionIds, tags, collections ->
+                    val (clip, unlocked) = clipUnlocked
+                    ClipDetailState(
+                        clip = clip,
+                        loading = false,
+                        unlocked = unlocked,
+                        tagIds = tagIds,
+                        collectionIds = collectionIds,
+                        tags = tags,
+                        collections = collections
+                    )
+                }
             }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ClipDetailState())

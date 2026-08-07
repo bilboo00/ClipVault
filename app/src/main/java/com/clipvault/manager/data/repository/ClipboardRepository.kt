@@ -58,6 +58,12 @@ class ClipboardRepository @Inject constructor(
     fun observeById(id: Long): Flow<Clip?> =
         dao.observeById(id).map { entity -> entity?.let(Clip.Companion::fromEntity) }
 
+    /** True if a clip with this exact content is still in history. */
+    suspend fun contentExists(content: String): Boolean = dao.countByContent(content) > 0
+
+    /** True if a clip still references this stored image path. */
+    suspend fun imageExists(path: String): Boolean = dao.countByImageUri(path) > 0
+
     suspend fun saveIfNew(content: String, sourceLabel: String? = null): Long? {
         val trimmed = content.trim()
         if (trimmed.isEmpty()) return null

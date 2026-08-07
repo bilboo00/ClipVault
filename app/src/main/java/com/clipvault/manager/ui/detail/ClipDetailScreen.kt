@@ -342,6 +342,7 @@ fun ClipDetailScreen(
                 value = clip.expiresAt?.let { "in ${formatRemaining(it)}" } ?: "Never",
                 onPick = { showExpirationDialog = true }
             )
+            Spacer(Modifier.height(8.dp))
             TempClipRow(
                 label = "Use limit",
                 value = clip.useLimit?.let { "${clip.useCount}/${clip.useLimit} uses" } ?: "Unlimited",

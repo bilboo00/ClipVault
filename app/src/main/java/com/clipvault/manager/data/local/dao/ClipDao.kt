@@ -113,6 +113,9 @@ interface ClipDao {
     @Query("SELECT COUNT(*) FROM clips WHERE content = :content LIMIT 1")
     suspend fun countByContent(content: String): Int
 
+    @Query("SELECT COUNT(*) FROM clips WHERE imageUri = :path LIMIT 1")
+    suspend fun countByImageUri(path: String): Int
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(clip: ClipEntity): Long
 

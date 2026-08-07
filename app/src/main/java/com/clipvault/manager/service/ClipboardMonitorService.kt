@@ -40,6 +40,7 @@ class ClipboardMonitorService : Service() {
     private var pollJob: Job? = null
     private var lastSeen: String? = null
     private var lastImageUri: String? = null
+    private var lastImagePath: String? = null
     private lateinit var clipboardManager: ClipboardManager
     private var listener: ClipboardManager.OnPrimaryClipChangedListener? = null
     @Volatile private var maskContent = false
@@ -151,15 +152,19 @@ class ClipboardMonitorService : Service() {
                 }
 
                 if (imageUri != null) {
+                    val uriKey = item.uri.toString()
+                    // Same source URI as the last capture — skip unless the clip
+                    // was deleted from history (delete → re-copy must re-save).
+                    if (uriKey == lastImageUri) {
+                        val path = lastImagePath
+                        if (path != null && repository.imageExists(path)) return@launch
+                    }
                     val savedPath = ImageCopier.copyToInternalStorage(this@ClipboardMonitorService, imageUri)
                     if (savedPath != null) {
-                        // Dedupe by the source content URI — the "[Image]" label is
-                        // identical for every image, so it can't be used as a marker.
-                        val uriKey = item.uri.toString()
-                        if (uriKey == lastImageUri) return@launch
                         val saved = repository.saveImage(savedPath, sourceLabel = null)
                         if (saved != null) {
                             lastImageUri = uriKey
+                            lastImagePath = savedPath
                             lastSeen = "[Image]"
                             updateNotification("Image saved")
                         }
@@ -172,7 +177,11 @@ class ClipboardMonitorService : Service() {
                         ?: item.coerceToText(this@ClipboardMonitorService)?.toString()
                 }.orEmpty()
                 if (text.isBlank()) return@launch
-                if (text == lastSeen) return@launch
+                if (text == lastSeen) {
+                    // Same content as the last capture — still verify it hasn't
+                    // been deleted from history before skipping.
+                    if (repository.contentExists(text)) return@launch
+                }
                 val saved = repository.saveIfNew(text, sourceLabel = null)
                 // Advance lastSeen even when the save was deduped, so we don't
                 // re-query the DB on every poll for an already-known clip.
