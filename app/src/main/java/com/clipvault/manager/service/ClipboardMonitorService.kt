@@ -17,6 +17,8 @@ import com.clipvault.manager.app.MainActivity
 import com.clipvault.manager.R
 import com.clipvault.manager.service.startForegroundCompat
 import com.clipvault.manager.data.repository.ClipboardRepository
+import com.clipvault.manager.data.preferences.SettingsManager
+import com.clipvault.manager.util.ImageCopier
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -32,16 +34,23 @@ import javax.inject.Inject
 class ClipboardMonitorService : Service() {
 
     @Inject lateinit var repository: ClipboardRepository
+    @Inject lateinit var settingsManager: SettingsManager
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var pollJob: Job? = null
     private var lastSeen: String? = null
+    private var lastImageUri: String? = null
     private lateinit var clipboardManager: ClipboardManager
     private var listener: ClipboardManager.OnPrimaryClipChangedListener? = null
+    @Volatile private var maskContent = false
 
     override fun onCreate() {
         super.onCreate()
         clipboardManager = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+        // Cache the masking setting and keep it updated
+        scope.launch {
+            settingsManager.maskSensitiveContent.collect { maskContent = it }
+        }
         createChannel()
         startForegroundCompat(NOTIFICATION_ID, buildNotification(null), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         startListening()
@@ -142,15 +151,17 @@ class ClipboardMonitorService : Service() {
                 }
 
                 if (imageUri != null) {
-                    val savedPath = saveImageToInternalStorage(imageUri)
+                    val savedPath = ImageCopier.copyToInternalStorage(this@ClipboardMonitorService, imageUri)
                     if (savedPath != null) {
-                        val label = "[Image]"
-                        if (label != lastSeen) {
-                            val saved = repository.saveImage(savedPath, sourceLabel = null)
-                            if (saved != null) {
-                                lastSeen = label
-                                updateNotification("Image saved")
-                            }
+                        // Dedupe by the source content URI — the "[Image]" label is
+                        // identical for every image, so it can't be used as a marker.
+                        val uriKey = item.uri.toString()
+                        if (uriKey == lastImageUri) return@launch
+                        val saved = repository.saveImage(savedPath, sourceLabel = null)
+                        if (saved != null) {
+                            lastImageUri = uriKey
+                            lastSeen = "[Image]"
+                            updateNotification("Image saved")
                         }
                     }
                     return@launch
@@ -163,28 +174,15 @@ class ClipboardMonitorService : Service() {
                 if (text.isBlank()) return@launch
                 if (text == lastSeen) return@launch
                 val saved = repository.saveIfNew(text, sourceLabel = null)
+                // Advance lastSeen even when the save was deduped, so we don't
+                // re-query the DB on every poll for an already-known clip.
+                lastSeen = text
                 if (saved != null) {
-                    lastSeen = text
                     updateNotification(text)
                 }
             } catch (_: SecurityException) {
             } catch (_: Exception) {
             }
-        }
-    }
-
-    private fun saveImageToInternalStorage(sourceUri: android.net.Uri): String? {
-        return try {
-            val inputStream = contentResolver.openInputStream(sourceUri) ?: return null
-            val fileName = "clip_${System.currentTimeMillis()}.png"
-            val file = java.io.File(filesDir, fileName)
-            file.outputStream().use { output ->
-                inputStream.copyTo(output)
-            }
-            inputStream.close()
-            file.absolutePath
-        } catch (_: Exception) {
-            null
         }
     }
 
@@ -206,7 +204,10 @@ class ClipboardMonitorService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_clipboard)
             .setContentTitle(getString(R.string.notif_title))
-            .setContentText(preview?.take(80) ?: getString(R.string.notif_idle))
+            .setContentText(
+                if (maskContent && preview != null) getString(R.string.notif_idle)
+                else preview?.take(80) ?: getString(R.string.notif_idle)
+            )
             .setOngoing(true)
             .setSilent(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)

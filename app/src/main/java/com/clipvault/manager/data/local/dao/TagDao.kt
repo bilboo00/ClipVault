@@ -13,7 +13,6 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface TagDao {
-
     @Query("SELECT * FROM tags ORDER BY name ASC")
     fun observeAll(): Flow<List<TagEntity>>
 
@@ -38,8 +37,14 @@ interface TagDao {
     @Query("SELECT * FROM clip_tags WHERE clipId = :clipId")
     suspend fun getCrossRefsForClip(clipId: Long): List<ClipTagCrossRef>
 
+    @Query("SELECT * FROM clip_tags WHERE clipId = :clipId")
+    fun observeCrossRefsForClip(clipId: Long): Flow<List<ClipTagCrossRef>>
+
     @Query("SELECT * FROM clip_tags WHERE tagId = :tagId")
     suspend fun getCrossRefsForTag(tagId: Long): List<ClipTagCrossRef>
+
+    @Query("SELECT tagId, COUNT(*) AS count FROM clip_tags GROUP BY tagId")
+    fun observeUsageCounts(): Flow<List<TagUsageCount>>
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertCrossRef(crossRef: ClipTagCrossRef)
@@ -57,3 +62,5 @@ interface TagDao {
         }
     }
 }
+
+data class TagUsageCount(val tagId: Long, val count: Int)

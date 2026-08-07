@@ -34,12 +34,20 @@ class StatsViewModel @Inject constructor(
     fun loadStats() = viewModelScope.launch {
         _state.value = _state.value.copy(isLoading = true)
         val now = System.currentTimeMillis()
-        val startOfToday = now - (now % 86_400_000L)
-        val weekAgo = now - 7 * 86_400_000L
+        // Local-midnight boundaries (UTC math was off by the timezone offset).
+        val cal = java.util.Calendar.getInstance().apply {
+            set(java.util.Calendar.HOUR_OF_DAY, 0)
+            set(java.util.Calendar.MINUTE, 0)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+        }
+        val startOfToday = cal.timeInMillis
+        val startOfWeek = startOfToday -
+            (cal.get(java.util.Calendar.DAY_OF_WEEK) - 1) * 86_400_000L
 
         val total = repository.count()
         val today = repository.countSince(startOfToday)
-        val week = repository.countSince(weekAgo)
+        val week = repository.countSince(startOfWeek)
         val bytes = repository.totalContentBytes()
         val types = repository.countByType()
 

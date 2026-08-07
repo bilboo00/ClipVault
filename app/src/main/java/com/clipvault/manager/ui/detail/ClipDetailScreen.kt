@@ -30,13 +30,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.LockOpen
 import androidx.compose.material.icons.outlined.NoteAdd
 import androidx.compose.material.icons.outlined.Queue
+import androidx.compose.material.icons.outlined.Sell
 import androidx.compose.material.icons.outlined.Transform
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PushPin
@@ -77,6 +80,7 @@ import com.clipvault.manager.domain.TextTransformer
 import com.clipvault.manager.domain.TransformationResult
 import com.clipvault.manager.haptic.rememberHaptics
 import com.clipvault.manager.ui.components.AnimatedCopyButton
+import com.clipvault.manager.ui.components.OrganizeSheet
 import com.clipvault.manager.ui.components.TypeBadge
 import com.clipvault.manager.ui.theme.Motion
 import java.text.DateFormat
@@ -98,6 +102,9 @@ fun ClipDetailScreen(
 
     var showNotesEditor by remember { mutableStateOf(false) }
     var showTransformSheet by remember { mutableStateOf(false) }
+    var showOrganizeSheet by remember { mutableStateOf(false) }
+    var showExpirationDialog by remember { mutableStateOf(false) }
+    var showUseLimitDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -109,6 +116,21 @@ fun ClipDetailScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = {
+                        state.clip?.let {
+                            haptics.medium()
+                            viewModel.toggleFavorite(it)
+                        }
+                    }) {
+                        Icon(
+                            imageVector = if (state.clip?.isFavorite == true)
+                                Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                            contentDescription = "Favorite",
+                            tint = if (state.clip?.isFavorite == true)
+                                MaterialTheme.colorScheme.error
+                            else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     IconButton(onClick = {
                         state.clip?.let {
                             haptics.medium()
@@ -221,6 +243,7 @@ fun ClipDetailScreen(
                     onClick = {
                         haptics.light()
                         copyToClipboard(context, clip.content)
+                        viewModel.recordUsage()
                         copied = true
                     },
                     modifier = Modifier.weight(1f)
@@ -288,6 +311,15 @@ fun ClipDetailScreen(
                     },
                     modifier = Modifier.weight(1f)
                 )
+                DetailAction(
+                    label = "Organize",
+                    icon = Icons.Outlined.Sell,
+                    onClick = {
+                        haptics.light()
+                        showOrganizeSheet = true
+                    },
+                    modifier = Modifier.weight(1f)
+                )
             }
 
             Spacer(Modifier.height(20.dp))
@@ -297,6 +329,24 @@ fun ClipDetailScreen(
             if (clip.sourceLabel != null) {
                 DetailMetaRow(label = "Source", value = clip.sourceLabel)
             }
+            val assigned = state.tags.filter { it.id in state.tagIds }.map { it.name } +
+                state.collections.filter { it.id in state.collectionIds }.map { it.name }
+            if (assigned.isNotEmpty()) {
+                DetailMetaRow(label = "Organized", value = assigned.joinToString(", "))
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            TempClipRow(
+                label = "Expires",
+                value = clip.expiresAt?.let { "in ${formatRemaining(it)}" } ?: "Never",
+                onPick = { showExpirationDialog = true }
+            )
+            TempClipRow(
+                label = "Use limit",
+                value = clip.useLimit?.let { "${clip.useCount}/${clip.useLimit} uses" } ?: "Unlimited",
+                onPick = { showUseLimitDialog = true }
+            )
 
             Spacer(Modifier.height(16.dp))
 
@@ -306,7 +356,13 @@ fun ClipDetailScreen(
                 onEdit = { showNotesEditor = true },
                 onToggleLock = {
                     if (clip.isLocked) {
-                        viewModel.toggleLock(clip)
+                        // Unlocking must go through the biometric prompt, not a
+                        // bare DB flip — otherwise the lock is trivially bypassed.
+                        promptUnlock(
+                            activity = context.findActivity(),
+                            viewModel = viewModel,
+                            clip = clip
+                        )
                     } else {
                         showNotesEditor = false
                         viewModel.toggleLock(clip)
@@ -348,6 +404,40 @@ fun ClipDetailScreen(
             onSave = { newNotes ->
                 viewModel.setNotes(newNotes)
                 showNotesEditor = false
+            }
+        )
+    }
+
+    if (showOrganizeSheet) {
+        OrganizeSheet(
+            tags = state.tags,
+            collections = state.collections,
+            selectedTagIds = state.tagIds,
+            selectedCollectionIds = state.collectionIds,
+            onToggleTag = viewModel::toggleTag,
+            onToggleCollection = viewModel::toggleCollection,
+            onDismiss = { showOrganizeSheet = false }
+        )
+    }
+
+    if (showExpirationDialog) {
+        ExpirationPickerDialog(
+            current = state.clip?.expiresAt,
+            onDismiss = { showExpirationDialog = false },
+            onPick = { expiresAt ->
+                viewModel.setExpiration(expiresAt)
+                showExpirationDialog = false
+            }
+        )
+    }
+
+    if (showUseLimitDialog) {
+        UseLimitPickerDialog(
+            current = state.clip?.useLimit,
+            onDismiss = { showUseLimitDialog = false },
+            onPick = { limit ->
+                viewModel.setUseLimit(limit)
+                showUseLimitDialog = false
             }
         )
     }
@@ -678,6 +768,135 @@ private fun DetailMetaRow(label: String, value: String) {
     ) {
         Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(value, style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+@Composable
+private fun TempClipRow(
+    label: String,
+    value: String,
+    onPick: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onPick),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(value, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+        }
+    }
+}
+
+@Composable
+private fun ExpirationPickerDialog(
+    current: Long?,
+    onDismiss: () -> Unit,
+    onPick: (Long?) -> Unit
+) {
+    val options = listOf(
+        "Never" to null,
+        "5 minutes" to (5 * 60_000L),
+        "30 minutes" to (30 * 60_000L),
+        "1 hour" to (60 * 60_000L),
+        "12 hours" to (12 * 60 * 60_000L),
+        "24 hours" to (24 * 60 * 60_000L),
+        "7 days" to (7 * 24 * 60 * 60_000L)
+    )
+    val now = System.currentTimeMillis()
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Auto-delete") },
+        text = {
+            Column {
+                Text(
+                    "The clip is removed after the chosen time. Pinned clips are never auto-deleted.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(12.dp))
+                options.forEach { (label, offset) ->
+                    val expiresAt = offset?.let { now + it }
+                    val isCurrent = current != null && current == expiresAt
+                    TextButton(
+                        onClick = { onPick(expiresAt) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            label + if (isCurrent) "  ✓" else "",
+                            modifier = Modifier.weight(1f),
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Start
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
+
+@Composable
+private fun UseLimitPickerDialog(
+    current: Int?,
+    onDismiss: () -> Unit,
+    onPick: (Int?) -> Unit
+) {
+    val options = listOf<Pair<String, Int?>>(
+        "Unlimited" to null,
+        "1 use" to 1,
+        "2 uses" to 2,
+        "3 uses" to 3,
+        "5 uses" to 5,
+        "10 uses" to 10
+    )
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Use limit") },
+        text = {
+            Column {
+                Text(
+                    "The clip is removed after being copied this many times. Pinned clips are never auto-deleted.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(12.dp))
+                options.forEach { (label, limit) ->
+                    TextButton(
+                        onClick = { onPick(limit) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            label + if (current != null && current == limit) "  ✓" else "",
+                            modifier = Modifier.weight(1f),
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Start
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
+
+private fun formatRemaining(expiresAt: Long): String {
+    val diff = expiresAt - System.currentTimeMillis()
+    if (diff <= 0) return "now"
+    val minutes = diff / 60_000
+    return when {
+        minutes < 60 -> "${minutes}m"
+        minutes < 24 * 60 -> "${minutes / 60}h"
+        else -> "${minutes / (24 * 60)}d"
     }
 }
 

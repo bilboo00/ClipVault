@@ -4,9 +4,12 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.RawQuery
 import androidx.room.Transaction
 import androidx.room.Update
+import androidx.sqlite.db.SupportSQLiteQuery
 import com.clipvault.manager.data.local.entity.ClipEntity
+import com.clipvault.manager.data.local.entity.ClipFtsEntity
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -51,11 +54,35 @@ interface ClipDao {
     @Query("SELECT * FROM clips WHERE id != :keepId AND content = :content")
     suspend fun findDuplicatesExcluding(keepId: Long, content: String): List<ClipEntity>
 
+    @Query(
+        "SELECT content, COUNT(*) AS count, " +
+            "COALESCE(" +
+            "  (SELECT c2.id FROM clips c2 WHERE c2.content = c1.content AND c2.isPinned = 1 " +
+            "   ORDER BY c2.createdAt DESC LIMIT 1), " +
+            "  (SELECT c3.id FROM clips c3 WHERE c3.content = c1.content " +
+            "   ORDER BY c3.createdAt DESC LIMIT 1)" +
+            ") AS keepId " +
+            "FROM clips c1 GROUP BY c1.content HAVING COUNT(*) > 1 ORDER BY COUNT(*) DESC"
+    )
+    suspend fun findDuplicateGroups(): List<DuplicateGroup>
+
+    @Query("UPDATE clips SET useCount = useCount + COALESCE((SELECT SUM(c2.useCount) FROM clips c2 WHERE c2.id IN (:ids)), 0) WHERE id = :keepId")
+    suspend fun foldUseCount(keepId: Long, ids: List<Long>)
+
+    @Query("INSERT OR IGNORE INTO clip_tags(clipId, tagId, addedAt) SELECT :keepId, tagId, MIN(addedAt) FROM clip_tags WHERE clipId IN (:ids) GROUP BY tagId")
+    suspend fun moveTagsTo(keepId: Long, ids: List<Long>)
+
+    @Query("INSERT OR IGNORE INTO clip_collections(clipId, collectionId, addedAt) SELECT :keepId, collectionId, MIN(addedAt) FROM clip_collections WHERE clipId IN (:ids) GROUP BY collectionId")
+    suspend fun moveCollectionsTo(keepId: Long, ids: List<Long>)
+
     @Query("DELETE FROM clips WHERE id IN (:ids)")
     suspend fun deleteAllByIds(ids: List<Long>)
 
-    @Query("SELECT * FROM clips WHERE content LIKE '%' || :query || '%' ORDER BY isPinned DESC, sortOrder ASC, createdAt DESC LIMIT 100")
+    @Query("SELECT * FROM clips WHERE content LIKE '%' || :query || '%' ESCAPE '\\' ORDER BY isPinned DESC, sortOrder ASC, createdAt DESC LIMIT 100")
     fun search(query: String): Flow<List<ClipEntity>>
+
+    @RawQuery(observedEntities = [ClipEntity::class, ClipFtsEntity::class])
+    fun searchFts(query: SupportSQLiteQuery): Flow<List<ClipEntity>>
 
     @Query("UPDATE clips SET sortOrder = :order WHERE id = :id")
     suspend fun setSortOrder(id: Long, order: Int)
@@ -110,6 +137,9 @@ interface ClipDao {
     @Query("DELETE FROM clips WHERE id = :id")
     suspend fun deleteById(id: Long)
 
+    @Query("DELETE FROM clips WHERE isPinned = 0")
+    suspend fun deleteUnpinned(): Int
+
     @Query("DELETE FROM clips WHERE id IN (:ids)")
     suspend fun deleteByIds(ids: List<Long>): Int
 
@@ -136,3 +166,5 @@ interface ClipDao {
 }
 
 data class TypeCount(val type: String, val cnt: Int)
+
+data class DuplicateGroup(val content: String, val count: Int, val keepId: Long)

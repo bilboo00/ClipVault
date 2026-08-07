@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 data class SearchUiState(
@@ -33,7 +34,7 @@ class SearchViewModel @Inject constructor(
         .debounce(150)
         .flatMapLatest { q ->
             if (q.isBlank()) kotlinx.coroutines.flow.flowOf(emptyList())
-            else repository.search(q)
+            else repository.searchFts(q)
         }
 
     val state: StateFlow<SearchUiState> = combine(query, searchResults) { q, results ->
@@ -41,4 +42,8 @@ class SearchViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SearchUiState())
 
     fun setQuery(q: String) { query.value = q }
+
+    fun recordUsage(clipId: Long) = viewModelScope.launch {
+        repository.incrementUseCount(clipId)
+    }
 }

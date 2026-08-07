@@ -89,9 +89,11 @@ class ClipboardAccessibilityService : AccessibilityService() {
                 val cm = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
                 val clip: ClipData? = cm.primaryClip
                 if (clip == null || clip.itemCount == 0) return@launch
-                val text = clip.getItemAt(0).coerceToText(this@ClipboardAccessibilityService)
-                    ?.toString().orEmpty()
+                val text = (clip.getItemAt(0).coerceToText(this@ClipboardAccessibilityService)
+                    ?.toString() ?: "").trim()
                 if (text.isBlank() || text == lastSeen) return@launch
+                // Advance lastSeen even when saveIfNew dedupes, so window-change
+                // events don't re-query the DB for already-known content.
                 lastSeen = text
                 repository.saveIfNew(text, sourceLabel = reason)
             } catch (_: SecurityException) {

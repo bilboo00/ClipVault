@@ -6,10 +6,13 @@ import com.clipvault.manager.data.local.entity.ClipEntity
 import com.clipvault.manager.data.local.entity.ClipType
 import com.clipvault.manager.data.preferences.SettingsManager
 import com.clipvault.manager.data.repository.ClipboardRepository
+import com.clipvault.manager.data.repository.UrlPreviewRepository
+import com.clipvault.manager.domain.PasteQueueManager
 import com.clipvault.manager.domain.model.Clip
 import com.clipvault.manager.service.ClipboardMonitorService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.channels.Channel
@@ -18,12 +21,15 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 
 sealed interface HomeEvent {
@@ -44,7 +50,10 @@ data class HomeUiState(
     val multiSelectMode: Boolean = false,
     val selectedIds: Set<Long> = emptySet(),
     val monitoringActive: Boolean = true,
-    val activeFilter: ClipType? = null
+    val activeFilter: ClipType? = null,
+    val favoritesOnly: Boolean = false,
+    val queueItems: List<ClipEntity> = emptyList(),
+    val queueIndex: Int = 0
 )
 
 private data class SelectionMeta(
@@ -55,11 +64,18 @@ private data class SelectionMeta(
     val monitoring: Boolean
 )
 
+private data class QueueMeta(
+    val items: List<ClipEntity>,
+    val index: Int
+)
+
 @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val repository: ClipboardRepository,
     private val settings: SettingsManager,
+    private val queueManager: PasteQueueManager,
+    private val urlPreviewRepository: UrlPreviewRepository,
     @ApplicationContext private val context: android.content.Context
 ) : ViewModel() {
 
@@ -69,9 +85,41 @@ class HomeViewModel @Inject constructor(
     private val multiSelectMode = MutableStateFlow(false)
     private val selectedIds = MutableStateFlow<Set<Long>>(emptySet())
     private val activeFilter = MutableStateFlow<ClipType?>(null)
+    private val favoritesOnly = MutableStateFlow(false)
 
     private val _events = Channel<HomeEvent>(Channel.BUFFERED)
     val events: Flow<HomeEvent> = _events.receiveAsFlow()
+
+    // ── URL preview titles ───────────────────────────────────────────
+    private val titleCache = ConcurrentHashMap<String, String?>()
+    private val _titleMap = MutableStateFlow<Map<String, String?>>(emptyMap())
+    val titleMap: StateFlow<Map<String, String?>> = _titleMap.asStateFlow()
+
+    /** Fetch a URL's page title in the background (cached in-memory + DB). */
+    fun fetchUrlTitle(url: String) {
+        if (titleCache.containsKey(url)) return
+        titleCache[url] = null
+        viewModelScope.launch {
+            val title = withContext(Dispatchers.IO) {
+                urlPreviewRepository.getCached(url)
+                    ?: urlPreviewRepository.refresh(url)
+            }
+            titleCache[url] = title
+            _titleMap.value = titleCache.toMap()
+        }
+    }
+
+    init {
+        // Rebind persisted queue entities after a restart: the manager restores
+        // ids from DataStore but needs the clip rows to render the tray.
+        viewModelScope.launch {
+            queueManager.queueFlow.collect { data ->
+                if (data.clipIds.isNotEmpty()) {
+                    queueManager.bindClips(repository.getByIds(data.clipIds))
+                }
+            }
+        }
+    }
 
      val state: StateFlow<HomeUiState> = combine(
         query.debounce(150).flatMapLatest { q ->
@@ -90,16 +138,23 @@ class HomeViewModel @Inject constructor(
         ) { copied, isSaving, isMulti, selected, monitoring ->
             SelectionMeta(copied, isSaving, isMulti, selected, monitoring)
         },
-        activeFilter
-    ) { clips, meta, filter ->
+        activeFilter,
+        favoritesOnly,
+        combine(queueManager.items, queueManager.currentIndex) { items, index ->
+            QueueMeta(items, index)
+        }
+    ) { clips, meta, filter, favOnly, queue ->
         HomeUiState(
-            clips = clips,
+            clips = if (favOnly) clips.filter { it.isFavorite } else clips,
             justCopiedForId = meta.justCopied,
             savingNow = meta.saving,
             multiSelectMode = meta.multiSelect,
             selectedIds = meta.selected,
             monitoringActive = meta.monitoring,
-            activeFilter = filter
+            activeFilter = filter,
+            favoritesOnly = favOnly,
+            queueItems = queue.items,
+            queueIndex = queue.index
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeUiState())
 
@@ -107,6 +162,30 @@ class HomeViewModel @Inject constructor(
 
     fun setFilter(type: ClipType?) {
         activeFilter.value = type
+    }
+
+    fun setFavoritesOnly(v: Boolean) { favoritesOnly.value = v }
+
+    fun toggleFavorite(clip: Clip) = viewModelScope.launch {
+        repository.toggleFavorite(clip.id, !clip.isFavorite)
+    }
+
+    // ── Paste queue ──────────────────────────────────────────────────
+
+    fun removeFromQueue(clipId: Long) = viewModelScope.launch {
+        queueManager.removeFromQueue(clipId)
+    }
+
+    fun moveInQueue(clipId: Long, newIndex: Int) = viewModelScope.launch {
+        queueManager.moveTo(clipId, newIndex)
+    }
+
+    fun advanceQueue() = viewModelScope.launch {
+        queueManager.advance()
+    }
+
+    fun clearQueue() = viewModelScope.launch {
+        queueManager.clear()
     }
 
     fun togglePin(clip: Clip) = viewModelScope.launch {
@@ -140,7 +219,12 @@ class HomeViewModel @Inject constructor(
         saving.value = false
     }
 
-    fun deleteAll() = viewModelScope.launch { repository.deleteAll() }
+    fun deleteAll() = viewModelScope.launch { repository.deleteAllUnpinned() }
+
+    /** Count a clip as "used" (drives use-limit expiry). */
+    fun recordUsage(clipId: Long) = viewModelScope.launch {
+        repository.incrementUseCount(clipId)
+    }
 
     // ── Multi-select ─────────────────────────────────────────────────
 

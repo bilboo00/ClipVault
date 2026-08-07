@@ -1,7 +1,6 @@
 package com.clipvault.manager.ui.components
 
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
-import androidx.compose.foundation.lazy.LazyListItemInfo
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Modifier
@@ -11,15 +10,19 @@ import androidx.compose.ui.input.pointer.pointerInput
 /**
  * Reorder helper for `LazyColumn` items. Long-press an item to start a drag,
  * then drag it up/down. While dragging, the item swaps positions in the
- * [items] list as it crosses neighbours. On release, [onMove] is called
- * once with the final (from, to) so the caller can persist.
+ * [items] list as it crosses neighbours. On release, [onDragEnd] is called
+ * so the caller can persist the final order.
+ *
+ * Item matching is done via the LazyColumn item key (equal to the clip id),
+ * so headers or other non-reorderable rows are safely skipped.
  */
 fun <T : Any> Modifier.draggableItem(
     listState: LazyListState,
     itemId: Any,
     items: SnapshotStateList<T>,
     equalityOf: (T) -> Any? = { (it as? WithId)?.id },
-    onMove: (itemId: Any, fromIndex: Int, toIndex: Int) -> Unit
+    onMove: (itemId: Any, fromIndex: Int, toIndex: Int) -> Unit = { _, _, _ -> },
+    onDragEnd: () -> Unit = {}
 ): Modifier = this.pointerInput(itemId) {
     var startIndex = -1
     var lastPointerY = 0f
@@ -41,26 +44,29 @@ fun <T : Any> Modifier.draggableItem(
             change.consume()
 
             val pointerY = initialPointerY + totalDeltaY
-            val current = listState.layoutInfo.visibleItemsInfo
-                .firstOrNull { item: LazyListItemInfo ->
-                    val center = item.offset + item.size / 2f
-                    pointerY in item.offset.toFloat()..(item.offset + item.size).toFloat() ||
-                        kotlin.math.abs(pointerY - center) < item.size / 2f
+            val target = listState.layoutInfo.visibleItemsInfo
+                .firstOrNull { item ->
+                    pointerY in item.offset.toFloat()..(item.offset + item.size).toFloat()
                 } ?: return@detectDragGesturesAfterLongPress
 
-            if (startIndex >= 0 && current.index != startIndex) {
+            // Map the LazyColumn item (keyed by clip id) back to our list.
+            val toIndex = items.indexOfFirst { equalityOf(it) == target.key }
+            if (startIndex >= 0 && toIndex >= 0 && toIndex != startIndex) {
                 val from = startIndex
-                val to = current.index
-                if (from in items.indices && to in items.indices) {
-                    val moved = items.removeAt(from)
-                    items.add(to, moved)
-                    startIndex = to
-                    onMove(itemId, from, to)
-                }
+                val moved = items.removeAt(from)
+                items.add(toIndex, moved)
+                startIndex = toIndex
+                onMove(itemId, from, toIndex)
             }
         },
-        onDragEnd = { startIndex = -1 },
-        onDragCancel = { startIndex = -1 }
+        onDragEnd = {
+            startIndex = -1
+            onDragEnd()
+        },
+        onDragCancel = {
+            startIndex = -1
+            onDragEnd()
+        }
     )
 }
 

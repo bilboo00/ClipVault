@@ -13,6 +13,7 @@ import com.clipvault.manager.data.local.dao.TagDao
 import com.clipvault.manager.data.local.dao.UrlPreviewDao
 import com.clipvault.manager.data.local.entity.ClipCollectionCrossRef
 import com.clipvault.manager.data.local.entity.ClipEntity
+import com.clipvault.manager.data.local.entity.ClipFtsEntity
 import com.clipvault.manager.data.local.entity.ClipTagCrossRef
 import com.clipvault.manager.data.local.entity.ClipType
 import com.clipvault.manager.data.local.entity.CollectionEntity
@@ -31,6 +32,7 @@ class ClipTypeConverter {
 @Database(
     entities = [
         ClipEntity::class,
+        ClipFtsEntity::class,
         SnippetEntity::class,
         UrlPreviewEntity::class,
         TagEntity::class,
@@ -38,7 +40,7 @@ class ClipTypeConverter {
         CollectionEntity::class,
         ClipCollectionCrossRef::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 @TypeConverters(ClipTypeConverter::class)
@@ -145,6 +147,31 @@ abstract class ClipDatabase : RoomDatabase() {
                 db.execSQL("INSERT INTO url_previews_new (url, title, fetchedAt) SELECT url, title, fetchedAt FROM url_previews")
                 db.execSQL("DROP TABLE url_previews")
                 db.execSQL("ALTER TABLE url_previews_new RENAME TO url_previews")
+            }
+        }
+
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // FTS4 external-content index over clips.content.
+                db.execSQL(
+                    "CREATE VIRTUAL TABLE IF NOT EXISTS `clips_fts` USING FTS4(content=`clips`, content, tokenize=simple)"
+                )
+                db.execSQL("INSERT INTO `clips_fts`(`clips_fts`) VALUES('rebuild')")
+                db.execSQL(
+                    "CREATE TRIGGER IF NOT EXISTS `clips_fts_ai` AFTER INSERT ON `clips` " +
+                        "BEGIN INSERT INTO `clips_fts`(`rowid`, `content`) VALUES (new.`rowid`, new.`content`); END"
+                )
+                db.execSQL(
+                    "CREATE TRIGGER IF NOT EXISTS `clips_fts_ad` AFTER DELETE ON `clips` " +
+                        "BEGIN INSERT INTO `clips_fts`(`clips_fts`, `rowid`, `content`) " +
+                        "VALUES ('delete', old.`rowid`, old.`content`); END"
+                )
+                db.execSQL(
+                    "CREATE TRIGGER IF NOT EXISTS `clips_fts_au` AFTER UPDATE ON `clips` " +
+                        "BEGIN INSERT INTO `clips_fts`(`clips_fts`, `rowid`, `content`) " +
+                        "VALUES ('delete', old.`rowid`, old.`content`); " +
+                        "INSERT INTO `clips_fts`(`rowid`, `content`) VALUES (new.`rowid`, new.`content`); END"
+                )
             }
         }
     }

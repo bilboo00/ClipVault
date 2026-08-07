@@ -6,7 +6,6 @@ import com.clipvault.manager.data.local.dao.TagDao
 import com.clipvault.manager.data.local.entity.TagEntity
 import com.clipvault.manager.data.repository.TagRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -27,12 +26,9 @@ class TagsViewModel @Inject constructor(
 
     val state: StateFlow<TagsUiState> = combine(
         repository.observeAll(),
-        MutableStateFlow(Unit)
-    ) { tags, _ ->
-        val usage = tags.associate { tag ->
-            tag.id to tagDao.getCrossRefsForTag(tag.id).size
-        }
-        TagsUiState(tags, usage)
+        tagDao.observeUsageCounts()
+    ) { tags, usage ->
+        TagsUiState(tags, usage.associate { it.tagId to it.count })
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TagsUiState())
 
     fun createTag(name: String, color: String) = viewModelScope.launch {

@@ -7,6 +7,7 @@ import android.provider.Settings
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.clipvault.manager.data.local.dao.DuplicateGroup
 import com.clipvault.manager.data.local.entity.ClipEntity
 import com.clipvault.manager.data.preferences.SettingsManager
 import com.clipvault.manager.data.repository.ClipboardRepository
@@ -16,6 +17,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -28,7 +30,9 @@ data class SettingsUiState(
     val monitoringEnabled: Boolean = true,
     val retentionDays: Int = 30,
     val themeMode: Int = 0,
-    val bubbleEnabled: Boolean = false
+    val bubbleEnabled: Boolean = false,
+    val maskSensitiveContent: Boolean = false,
+    val requireBiometric: Boolean = false
 )
 
 @HiltViewModel
@@ -42,9 +46,18 @@ class SettingsViewModel @Inject constructor(
         settings.monitoringEnabled,
         settings.maxHistoryDays,
         settings.darkThemeOverride,
-        settings.bubbleEnabled
-    ) { enabled, days, theme, bubble ->
-        SettingsUiState(enabled, days, theme, bubble)
+        settings.bubbleEnabled,
+        settings.maskSensitiveContent,
+        settings.requireBiometric
+    ) { values ->
+        SettingsUiState(
+            monitoringEnabled = values[0] as Boolean,
+            retentionDays = values[1] as Int,
+            themeMode = values[2] as Int,
+            bubbleEnabled = values[3] as Boolean,
+            maskSensitiveContent = values[4] as Boolean,
+            requireBiometric = values[5] as Boolean
+        )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState())
 
     val onboardingDone: Flow<Boolean> = settings.onboardingCompleted
@@ -109,11 +122,49 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun setMaskSensitiveContent(enabled: Boolean) = viewModelScope.launch {
+        try { settings.setMaskSensitiveContent(enabled) } catch (e: Exception) {
+            Log.e(TAG, "setMaskSensitiveContent($enabled) failed", e)
+        }
+    }
+
+    fun setRequireBiometric(enabled: Boolean) = viewModelScope.launch {
+        try { settings.setRequireBiometric(enabled) } catch (e: Exception) {
+            Log.e(TAG, "setRequireBiometric($enabled) failed", e)
+        }
+    }
+
     fun deleteAll() = viewModelScope.launch {
         try {
-            withContext(Dispatchers.IO) { repository.deleteAll() }
+            withContext(Dispatchers.IO) { repository.deleteAllUnpinned() }
         } catch (e: Exception) {
             Log.e(TAG, "deleteAll failed", e)
+        }
+    }
+
+    // ── Duplicate detection ─────────────────────────────────────────
+
+    private val _duplicates = MutableStateFlow<List<DuplicateGroup>>(emptyList())
+    val duplicates: StateFlow<List<DuplicateGroup>> = _duplicates
+
+    fun refreshDuplicates() = viewModelScope.launch {
+        try {
+            withContext(Dispatchers.IO) {
+                _duplicates.value = repository.findDuplicateGroups()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "refreshDuplicates failed", e)
+        }
+    }
+
+    fun mergeDuplicate(keepId: Long, content: String) = viewModelScope.launch {
+        try {
+            withContext(Dispatchers.IO) {
+                repository.mergeDuplicateGroup(keepId, content)
+            }
+            refreshDuplicates()
+        } catch (e: Exception) {
+            Log.e(TAG, "mergeDuplicate failed", e)
         }
     }
 

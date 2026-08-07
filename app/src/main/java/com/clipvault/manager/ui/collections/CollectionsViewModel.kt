@@ -6,7 +6,6 @@ import com.clipvault.manager.data.local.dao.CollectionDao
 import com.clipvault.manager.data.local.entity.CollectionEntity
 import com.clipvault.manager.data.repository.CollectionRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -27,12 +26,9 @@ class CollectionsViewModel @Inject constructor(
 
     val state: StateFlow<CollectionsUiState> = combine(
         repository.observeAll(),
-        MutableStateFlow(Unit)
-    ) { collections, _ ->
-        val usage = collections.associate { c ->
-            c.id to collectionDao.getCrossRefsForCollection(c.id).size
-        }
-        CollectionsUiState(collections, usage)
+        collectionDao.observeUsageCounts()
+    ) { collections, usage ->
+        CollectionsUiState(collections, usage.associate { it.collectionId to it.count })
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), CollectionsUiState())
 
     fun createCollection(name: String) = viewModelScope.launch {

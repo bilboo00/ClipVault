@@ -27,22 +27,27 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowForward
 import androidx.compose.material.icons.outlined.AccessibilityNew
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.BubbleChart
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.DeleteForever
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.FileUpload
+import androidx.compose.material.icons.outlined.Fingerprint
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Sell
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.RestartAlt
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material.icons.outlined.Widgets
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -63,6 +68,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -92,10 +98,12 @@ private val Green = IconAccent(Color(0xFFDCFCE7), Color(0xFF16A34A))
 private val Pink = IconAccent(Color(0xFFFCE7F3), Color(0xFFDB2777))
 private val Slate = IconAccent(Color(0xFFF1F5F9), Color(0xFF475569))
 private val Red = IconAccent(Color(0xFFFEE2E2), Color(0xFFDC2626))
+private val Purple = IconAccent(Color(0xFFF3E8FF), Color(0xFF9333EA))
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
+    onNavigate: (String) -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsState()
@@ -106,6 +114,7 @@ fun SettingsScreen(
     var showRetentionSheet by remember { mutableStateOf(false) }
     var showThemeSheet by remember { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
+    var showDuplicatesDialog by remember { mutableStateOf(false) }
     var showExportFormatSheet by remember { mutableStateOf(false) }
     var selectedExportFormat by remember { mutableStateOf(com.clipvault.manager.data.export.ExportFormat.JSON) }
     var exportMessage by remember { mutableStateOf<String?>(null) }
@@ -186,6 +195,30 @@ fun SettingsScreen(
                 }
             }
 
+            // ── Privacy ─────────────────────────────────────────────
+            item { SectionHeader("Privacy") }
+            item {
+                SettingsCard {
+                    ToggleRow(
+                        accent = Red,
+                        icon = Icons.Outlined.VisibilityOff,
+                        title = "Mask sensitive content",
+                        subtitle = "Hide clip text in notifications, widget, and search.",
+                        checked = state.maskSensitiveContent,
+                        onCheckedChange = viewModel::setMaskSensitiveContent
+                    )
+                    HorizontalDivider()
+                    ToggleRow(
+                        accent = Purple,
+                        icon = Icons.Outlined.Fingerprint,
+                        title = "Require biometric to open",
+                        subtitle = "Lock the app behind biometric / device credential.",
+                        checked = state.requireBiometric,
+                        onCheckedChange = viewModel::setRequireBiometric
+                    )
+                }
+            }
+
             // ── Quick access ────────────────────────────────────────────
             item { SectionHeader("Quick access") }
             item {
@@ -230,14 +263,16 @@ fun SettingsScreen(
                         accent = Indigo,
                         icon = Icons.Outlined.Sell,
                         title = "Tags",
-                        subtitle = "Organize clips with custom labels."
+                        subtitle = "Organize clips with custom labels.",
+                        onClick = { onNavigate(com.clipvault.manager.ui.nav.Route.Tags.path) }
                     )
                     SettingsDivider()
                     ChevronRow(
                         accent = Violet,
                         icon = Icons.Outlined.Folder,
                         title = "Collections",
-                        subtitle = "Group related clips into folders."
+                        subtitle = "Group related clips into folders.",
+                        onClick = { onNavigate(com.clipvault.manager.ui.nav.Route.Collections.path) }
                     )
                 }
             }
@@ -260,6 +295,16 @@ fun SettingsScreen(
                         title = "Theme",
                         subtitle = themeLabel(state.themeMode),
                         onClick = { showThemeSheet = true }
+                    )
+                    SettingsDivider()
+                    ChevronRow(
+                        accent = Green,
+                        icon = Icons.Outlined.ContentCopy,
+                        title = "Find duplicates",
+                        subtitle = "Merge identical clips to keep history tidy.",
+                        onClick = {
+                            showDuplicatesDialog = true
+                        }
                     )
                 }
             }
@@ -398,6 +443,62 @@ fun SettingsScreen(
                 }
             },
             confirmButton = { TextButton(onClick = { showAboutDialog = false }) { Text("Done") } }
+        )
+    }
+
+    if (showDuplicatesDialog) {
+        val duplicates by viewModel.duplicates.collectAsState()
+        LaunchedEffect(showDuplicatesDialog) {
+            if (showDuplicatesDialog) viewModel.refreshDuplicates()
+        }
+        AlertDialog(
+            onDismissRequest = { showDuplicatesDialog = false },
+            icon = { Icon(Icons.Outlined.ContentCopy, contentDescription = null, tint = Green.tint) },
+            title = { Text("Find duplicates") },
+            text = {
+                if (duplicates.isEmpty()) {
+                    Text("No duplicate clips found — nice and tidy.")
+                } else {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        Text(
+                            "Each group shares the same content. Merging keeps the newest clip (pinned first) and folds tags, collections and use counts into it.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        duplicates.forEach { group ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = group.content,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        maxLines = 2,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = "${group.count} copies",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                TextButton(onClick = {
+                                    viewModel.mergeDuplicate(group.keepId, group.content)
+                                }) { Text("Merge") }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showDuplicatesDialog = false }) { Text("Done") } }
         )
     }
 

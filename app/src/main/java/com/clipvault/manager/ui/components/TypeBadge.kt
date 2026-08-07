@@ -10,6 +10,7 @@ import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Numbers
 import androidx.compose.material.icons.filled.Palette
@@ -61,6 +62,7 @@ fun typeIcon(type: ClipType) = when (type) {
     ClipType.WALLET_ADDRESS -> Icons.Filled.Wallet
     ClipType.IP -> Icons.Outlined.Public
     ClipType.IMAGE -> Icons.Filled.Image
+    ClipType.OTP -> Icons.Filled.Key
 }
 
 fun ClipType.label() = when (this) {
@@ -77,4 +79,5 @@ fun ClipType.label() = when (this) {
     ClipType.WALLET_ADDRESS -> "Wallet"
     ClipType.IP -> "IP"
     ClipType.IMAGE -> "Image"
+    ClipType.OTP -> "OTP"
 }

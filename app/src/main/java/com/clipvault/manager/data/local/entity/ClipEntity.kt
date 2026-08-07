@@ -6,7 +6,7 @@ import androidx.room.PrimaryKey
 
 enum class ClipType {
     TEXT, URL, EMAIL, PHONE, CODE, NUMBER,
-    COLOR_HEX, IBAN, UUID, JSON, WALLET_ADDRESS, IP, IMAGE
+    COLOR_HEX, IBAN, UUID, JSON, WALLET_ADDRESS, IP, IMAGE, OTP
 }
 
 @Entity(

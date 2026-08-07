@@ -3,6 +3,7 @@ package com.clipvault.manager.data.repository
 import com.clipvault.manager.data.local.dao.CollectionDao
 import com.clipvault.manager.data.local.entity.CollectionEntity
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -28,4 +29,7 @@ class CollectionRepository @Inject constructor(
         dao.setCollectionsForClip(clipId, collectionIds)
 
     suspend fun getCrossRefsForClip(clipId: Long) = dao.getCrossRefsForClip(clipId)
+
+    fun observeCrossRefsForClip(clipId: Long): Flow<Set<Long>> =
+        dao.observeCrossRefsForClip(clipId).map { list -> list.map { it.collectionId }.toSet() }
 }

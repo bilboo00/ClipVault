@@ -19,9 +19,17 @@ object ClipClassifier {
     private val btcRegex = Regex("^(bc1|[13])[a-zA-HJ-NP-Z0-9]{25,62}$")
     private val ethRegex = Regex("^0x[0-9a-fA-F]{40}$")
 
+    // One-time codes: a 4-8 digit code near a context keyword such as
+    // "verification code is 482913", "OTP: 1234", "sign-in code 937201".
+    private val otpContextRegex = Regex(
+        "(?i)(?:code|otp|verification|one[\\s-]?time|login|sign[\\s-]?in|password|auth|pin|confirm)" +
+            "[^0-9]{0,14}(\\d{4,8})"
+    )
+
     fun classify(text: String): ClipType {
         val trimmed = text.trim()
         return when {
+            extractOtp(trimmed) != null -> ClipType.OTP
             urlRegex.matches(trimmed) -> ClipType.URL
             colorHexRegex.matches(trimmed) -> ClipType.COLOR_HEX
             emailRegex.matches(trimmed) -> ClipType.EMAIL
@@ -38,6 +46,14 @@ object ClipClassifier {
             else -> ClipType.TEXT
         }
     }
+
+    /**
+     * Extracts a one-time code (4-8 digits) when the text carries a context
+     * keyword. Conservative on purpose: bare numbers are left as NUMBER so
+     * phone numbers or other plain digits are never mis-handled.
+     */
+    fun extractOtp(text: String): String? =
+        otpContextRegex.find(text.trim())?.groupValues?.get(1)
 
     /**
      * Parse a #RRGGBB / #AARRGGBB string to an ARGB Long.

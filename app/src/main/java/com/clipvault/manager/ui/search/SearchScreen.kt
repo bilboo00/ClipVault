@@ -144,7 +144,10 @@ fun SearchScreen(
                         ResultRow(
                             clip = clip,
                             highlight = state.query,
-                            onCopy = { copy(context, clip.content) }
+                            onCopy = {
+                                copy(context, clip.content)
+                                viewModel.recordUsage(clip.id)
+                            }
                         )
                     }
                 }

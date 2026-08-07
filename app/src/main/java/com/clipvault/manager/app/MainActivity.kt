@@ -8,7 +8,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import androidx.activity.ComponentActivity
+import androidx.appcompat.app.AppCompatActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -17,6 +17,7 @@ import androidx.compose.animation.ExitTransition
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -34,6 +35,10 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.clipvault.manager.data.repository.ClipboardRepository
+import com.clipvault.manager.data.preferences.SettingsManager
+import com.clipvault.manager.data.security.BiometricManager
+import com.clipvault.manager.util.ImageCopier
+import kotlinx.coroutines.flow.MutableStateFlow
 import com.clipvault.manager.ui.detail.ClipDetailScreen
 import com.clipvault.manager.ui.home.HomeScreen
 import com.clipvault.manager.ui.nav.ClipVaultBottomBar
@@ -43,6 +48,7 @@ import com.clipvault.manager.ui.search.SearchScreen
 import com.clipvault.manager.ui.settings.SettingsScreen
 import com.clipvault.manager.ui.settings.SettingsViewModel
 import com.clipvault.manager.ui.collections.CollectionsScreen
+import com.clipvault.manager.ui.lock.LockScreen
 import com.clipvault.manager.ui.snippets.SnippetsScreen
 import com.clipvault.manager.ui.stats.StatsScreen
 import com.clipvault.manager.ui.tags.TagsScreen
@@ -52,9 +58,14 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @AndroidEntryPoint
-class MainActivity : ComponentActivity() {
+class MainActivity : AppCompatActivity() {
 
     @Inject lateinit var repository: ClipboardRepository
+    @Inject lateinit var settingsManager: SettingsManager
+    @Inject lateinit var biometricManager: BiometricManager
+
+    /** Clip id extracted from a deep link; consumed by the NavHost. */
+    private val deepLinkClipId = MutableStateFlow<Long?>(null)
 
     private val requestNotificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* user choice */ }
@@ -71,13 +82,31 @@ class MainActivity : ComponentActivity() {
             val onboardingDone by settingsViewModel.onboardingDone.collectAsStateWithLifecycle(true)
             var showOnboarding by remember { mutableStateOf(!onboardingDone) }
 
+            // Biometric lock state
+            val requireBiometric by settingsManager.requireBiometric.collectAsStateWithLifecycle(false)
+            var appLocked by remember(requireBiometric) { mutableStateOf(requireBiometric) }
+
             // When onboarding state changes, sync the shown screen
             LaunchedEffect(onboardingDone) {
                 showOnboarding = !onboardingDone
             }
 
             ClipboardManagerTheme(themeOverride = settingsState.themeMode) {
-                if (showOnboarding) {
+                if (appLocked && requireBiometric) {
+                    LockScreen(
+                        activity = this@MainActivity,
+                        canAuthenticate = biometricManager.canAuthenticate(this@MainActivity),
+                        onAuthenticate = {
+                            biometricManager.prompt(
+                                activity = this@MainActivity,
+                                title = "Unlock ClipVault",
+                                subtitle = "Authenticate to access your clipboard",
+                                onSuccess = { appLocked = false },
+                                onFailure = { /* stay locked */ }
+                            )
+                        }
+                    )
+                } else if (showOnboarding) {
                     OnboardingScreen(
                         onFinished = { showOnboarding = false }
                     )
@@ -85,6 +114,15 @@ class MainActivity : ComponentActivity() {
                     val nav = rememberNavController()
                     val navBackStackEntry by nav.currentBackStackEntryAsState()
                     val currentRoute = navBackStackEntry?.destination?.route
+                    val pendingDeepLinkId by deepLinkClipId.collectAsState()
+
+                    // Navigate to the clip targeted by a deep link, then clear it
+                    // so rotation / resume doesn't re-trigger.
+                    LaunchedEffect(pendingDeepLinkId) {
+                        val id = pendingDeepLinkId ?: return@LaunchedEffect
+                        nav.navigate(Route.Detail.build(id))
+                        deepLinkClipId.value = null
+                    }
 
                     Scaffold(
                         bottomBar = {
@@ -124,7 +162,13 @@ class MainActivity : ComponentActivity() {
                                 SearchScreen()
                             }
                             composable(Route.Settings.path) {
-                                SettingsScreen()
+                                SettingsScreen(
+                                    onNavigate = { route ->
+                                        nav.navigate(route) {
+                                            launchSingleTop = true
+                                        }
+                                    }
+                                )
                             }
                             composable(Route.Snippets.path) {
                                 SnippetsScreen()
@@ -179,30 +223,69 @@ class MainActivity : ComponentActivity() {
     private fun handleIntent(intent: Intent?) {
         intent ?: return
         when (intent.action) {
-            Intent.ACTION_SEND -> handleSharedText(intent)
+            Intent.ACTION_SEND -> handleSharedContent(intent)
+            Intent.ACTION_SEND_MULTIPLE -> handleSharedMultiple(intent)
             Intent.ACTION_VIEW -> handleDeepLink(intent.data)
         }
     }
 
-    private fun handleSharedText(intent: Intent) {
-        val text = intent.getStringExtra(Intent.EXTRA_TEXT) ?: return
+    private fun handleSharedContent(intent: Intent) {
+        val stream = if (Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            intent.getParcelableExtra(Intent.EXTRA_STREAM)
+        }
+        if (stream != null) {
+            saveSharedImage(stream)
+        } else {
+            val text = intent.getStringExtra(Intent.EXTRA_TEXT)
+                ?: intent.getStringExtra(Intent.EXTRA_HTML_TEXT)
+            if (!text.isNullOrBlank()) {
+                lifecycleScope.launch { repository.saveIfNew(text, sourceLabel = "share") }
+            }
+        }
+        // Consume immediately so rotation / re-entry doesn't re-import.
+        intent.action = null
+        intent.data = null
+    }
+
+    private fun handleSharedMultiple(intent: Intent) {
+        val streams = if (Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM)
+        }
+        streams?.forEach { saveSharedImage(it) }
+        val text = intent.getStringExtra(Intent.EXTRA_TEXT)
+        if (!text.isNullOrBlank()) {
+            lifecycleScope.launch { repository.saveIfNew(text, sourceLabel = "share") }
+        }
+        intent.action = null
+        intent.data = null
+    }
+
+    private fun saveSharedImage(uri: Uri) {
         lifecycleScope.launch {
-            repository.saveIfNew(text, sourceLabel = "share")
-            intent.action = null
+            val savedPath = ImageCopier.copyToInternalStorage(this@MainActivity, uri)
+            if (savedPath != null) {
+                repository.saveImage(savedPath, sourceLabel = "share")
+            }
         }
     }
 
     private fun handleDeepLink(uri: Uri?) {
         uri ?: return
-        val pathSegments = uri.pathSegments
-        if (uri.host == "clip" && pathSegments.size >= 2) {
-            val clipId = pathSegments[1].toLongOrNull() ?: return
-            startActivity(intent.apply {
-                action = Intent.ACTION_MAIN
-                addCategory(Intent.CATEGORY_LAUNCHER)
-                putExtra(EXTRA_DEEP_LINK_CLIP_ID, clipId)
-            })
-        }
+        // clipvault://clip/{id} and https://clipvault.app/clip/{id}
+        val clipId = when (uri.host) {
+            "clip", "clipvault.app" -> uri.lastPathSegment?.toLongOrNull()
+            else -> null
+        } ?: return
+        if (clipId > 0) deepLinkClipId.value = clipId
+        // Consume the intent so onResume / re-entry doesn't re-trigger.
+        intent.action = null
+        intent.data = null
     }
 
     private fun readAndSaveClipboard() {
@@ -233,6 +316,5 @@ class MainActivity : ComponentActivity() {
     companion object {
         const val EXTRA_FROM_TILE = "from_tile"
         const val EXTRA_FROM_BUBBLE = "from_bubble"
-        const val EXTRA_DEEP_LINK_CLIP_ID = "deep_link_clip_id"
     }
 }

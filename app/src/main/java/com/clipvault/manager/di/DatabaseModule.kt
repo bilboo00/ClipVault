@@ -27,7 +27,8 @@ object DatabaseModule {
                 ClipDatabase.MIGRATION_1_2,
                 ClipDatabase.MIGRATION_2_3,
                 ClipDatabase.MIGRATION_3_4,
-                ClipDatabase.MIGRATION_4_5
+                ClipDatabase.MIGRATION_4_5,
+                ClipDatabase.MIGRATION_5_6
             )
             .fallbackToDestructiveMigration()
             .build()

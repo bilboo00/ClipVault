@@ -39,6 +39,12 @@ class SettingsManager @Inject constructor(
     val onboardingCompleted: Flow<Boolean> =
         ds.data.map { it[KEY_ONBOARDED] ?: false }.distinctUntilChanged().flowOn(Dispatchers.IO)
 
+    val maskSensitiveContent: Flow<Boolean> =
+        ds.data.map { it[KEY_MASK] ?: false }.distinctUntilChanged().flowOn(Dispatchers.IO)
+
+    val requireBiometric: Flow<Boolean> =
+        ds.data.map { it[KEY_BIO_LOCK] ?: false }.distinctUntilChanged().flowOn(Dispatchers.IO)
+
     suspend fun setMonitoring(enabled: Boolean) = withContext(Dispatchers.IO) {
         ds.edit { it[KEY_MONITORING] = enabled }
     }
@@ -59,11 +65,21 @@ class SettingsManager @Inject constructor(
         ds.edit { it[KEY_ONBOARDED] = done }
     }
 
+    suspend fun setMaskSensitiveContent(enabled: Boolean) = withContext(Dispatchers.IO) {
+        ds.edit { it[KEY_MASK] = enabled }
+    }
+
+    suspend fun setRequireBiometric(enabled: Boolean) = withContext(Dispatchers.IO) {
+        ds.edit { it[KEY_BIO_LOCK] = enabled }
+    }
+
     private companion object {
         val KEY_MONITORING: Preferences.Key<Boolean> = booleanPreferencesKey("monitoring_enabled")
         val KEY_RETENTION_DAYS: Preferences.Key<Int> = intPreferencesKey("retention_days")
         val KEY_THEME: Preferences.Key<Int> = intPreferencesKey("theme_mode")
         val KEY_BUBBLE: Preferences.Key<Boolean> = booleanPreferencesKey("bubble_enabled")
         val KEY_ONBOARDED: Preferences.Key<Boolean> = booleanPreferencesKey("onboarding_completed")
+        val KEY_MASK: Preferences.Key<Boolean> = booleanPreferencesKey("mask_sensitive")
+        val KEY_BIO_LOCK: Preferences.Key<Boolean> = booleanPreferencesKey("require_biometric")
     }
 }

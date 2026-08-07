@@ -16,8 +16,8 @@ android {
         applicationId = "com.clipvault.manager"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 3
+        versionName = "1.1.0"
         vectorDrawables { useSupportLibrary = true }
     }
 
@@ -125,6 +125,9 @@ dependencies {
 
     // Open Graph / link preview parsing
     implementation("org.jsoup:jsoup:1.17.2")
+
+    // AppCompat (required for BiometricPrompt with FragmentActivity)
+    implementation("androidx.appcompat:appcompat:1.7.0")
 
     // Testing
     testImplementation("junit:junit:4.13.2")

@@ -38,8 +38,14 @@ interface CollectionDao {
     @Query("SELECT * FROM clip_collections WHERE clipId = :clipId")
     suspend fun getCrossRefsForClip(clipId: Long): List<ClipCollectionCrossRef>
 
+    @Query("SELECT * FROM clip_collections WHERE clipId = :clipId")
+    fun observeCrossRefsForClip(clipId: Long): Flow<List<ClipCollectionCrossRef>>
+
     @Query("SELECT * FROM clip_collections WHERE collectionId = :collectionId")
     suspend fun getCrossRefsForCollection(collectionId: Long): List<ClipCollectionCrossRef>
+
+    @Query("SELECT collectionId, COUNT(*) AS count FROM clip_collections GROUP BY collectionId")
+    fun observeUsageCounts(): Flow<List<CollectionUsageCount>>
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertCrossRef(crossRef: ClipCollectionCrossRef)
@@ -57,3 +63,5 @@ interface CollectionDao {
         }
     }
 }
+
+data class CollectionUsageCount(val collectionId: Long, val count: Int)

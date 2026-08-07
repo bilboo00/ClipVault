@@ -24,20 +24,27 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.Pause
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.PushPin
+import androidx.compose.material.icons.outlined.Queue
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -74,12 +81,14 @@ import com.clipvault.manager.haptic.rememberHaptics
 import com.clipvault.manager.sensor.ShakeDetector
 import com.clipvault.manager.data.local.entity.ClipType
 import com.clipvault.manager.domain.model.Clip
+import com.clipvault.manager.domain.model.ClipClassifier
 import com.clipvault.manager.ui.components.AnimatedCopyButton
 import com.clipvault.manager.ui.components.CopyHeroOverlay
 import com.clipvault.manager.ui.components.EmptyStateWithOrb
 import com.clipvault.manager.ui.components.InlinePreview
 import com.clipvault.manager.ui.components.MultiSelectActionBar
 import com.clipvault.manager.ui.components.MultiSelectClipRow
+import com.clipvault.manager.ui.components.QueueSheet
 import com.clipvault.manager.ui.components.SaveFab
 import com.clipvault.manager.ui.components.StackedSnackbarHost
 import com.clipvault.manager.ui.components.SwipeAction
@@ -108,7 +117,17 @@ fun HomeScreen(
     val hero = rememberCopyHeroState()
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    val urlTitles by viewModel.titleMap.collectAsStateWithLifecycle()
     var showClearDialog by remember { mutableStateOf(false) }
+    var showQueueSheet by remember { mutableStateOf(false) }
+
+    // Shared reorder list for pinned-clip drag reordering. Kept in sync with
+    // the underlying list; mutated locally during a drag, restored on DB change.
+    val reorderList = remember { mutableStateListOf<Clip>() }
+    LaunchedEffect(state.clips) {
+        reorderList.clear()
+        reorderList.addAll(state.clips)
+    }
 
     // Shake-to-clear (#4)
     LaunchedEffect(Unit) {
@@ -123,6 +142,7 @@ fun HomeScreen(
         haptics.light()
         copyToClipboard(context, clip.content)
         viewModel.flashCopied(clip.id)
+        viewModel.recordUsage(clip.id)
         val pos = getPosition()
         if (pos != null) {
             val w = context.resources.displayMetrics.widthPixels.toFloat()
@@ -131,6 +151,7 @@ fun HomeScreen(
         }
     }
     val onPin: (Clip) -> Unit = { clip -> haptics.medium(); viewModel.togglePin(clip) }
+    val onFavorite: (Clip) -> Unit = { clip -> haptics.light(); viewModel.toggleFavorite(clip) }
     val onDelete: (Clip) -> Unit = { clip -> haptics.heavy(); viewModel.delete(clip) }
     val onLongPressEnterSelect: (Clip) -> Unit = { clip -> haptics.medium(); viewModel.enterMultiSelect(clip.id) }
 
@@ -214,7 +235,9 @@ fun HomeScreen(
                     NormalTopBar(
                         count = state.clips.size,
                         monitoringActive = state.monitoringActive,
-                        onToggleMonitoring = viewModel::toggleMonitoring
+                        queueSize = state.queueItems.size,
+                        onToggleMonitoring = viewModel::toggleMonitoring,
+                        onOpenQueue = { showQueueSheet = true }
                     )
                 }
             }
@@ -260,7 +283,9 @@ fun HomeScreen(
             if (!state.multiSelectMode) {
                 FilterChipRow(
                     activeFilter = state.activeFilter,
-                    onFilterChange = viewModel::setFilter
+                    onFilterChange = viewModel::setFilter,
+                    favoritesOnly = state.favoritesOnly,
+                    onFavoritesChange = viewModel::setFavoritesOnly
                 )
             }
             Box(modifier = Modifier.fillMaxSize()) {
@@ -285,8 +310,13 @@ fun HomeScreen(
                         stickyHeader(key = "header_$header", contentType = "header") {
                             DateSectionHeader(header)
                         }
-                        items(clips, key = { it.id }, contentType = { "clip" }) { clip ->
-                         val isSelected = clip.id in state.selectedIds
+                       items(clips, key = { it.id }, contentType = { "clip" }) { clip ->
+                          // Trigger background fetch for URL clips so the preview
+                          // title shows up once the network request completes.
+                          if (clip.type == ClipType.URL) {
+                              LaunchedEffect(clip.id) { viewModel.fetchUrlTitle(clip.content) }
+                          }
+                          val isSelected = clip.id in state.selectedIds
                          when {
                              state.multiSelectMode -> {
                                  MultiSelectClipRow(
@@ -305,15 +335,19 @@ fun HomeScreen(
                            ClipRowWithHero(
                                clip = clip,
                                justCopied = state.justCopiedForId == clip.id,
+                               multiSelectMode = state.multiSelectMode,
                                listState = listState,
+                               reorderList = reorderList,
                                onCopy = onCopy,
                                onPin = onPin,
+                               onFavorite = onFavorite,
                                onDelete = onDelete,
                                onClick = { onOpenDetail(clip.id) },
                                onLongPress = { onLongPressEnterSelect(clip) },
                                onReorderPinned = { newOrder ->
                                    scope.launch { viewModel.persistPinnedOrder(newOrder) }
-                               }
+                               },
+                               urlTitle = urlTitles[clip.content]
                            )
                              }
                           }
@@ -347,6 +381,40 @@ fun HomeScreen(
             }
         )
     }
+
+    if (showQueueSheet) {
+        QueueSheet(
+            items = state.queueItems,
+            currentIndex = state.queueIndex,
+            onCopy = { item ->
+                haptics.light()
+                copyToClipboard(context, item.content)
+                viewModel.recordUsage(item.id)
+            },
+            onCopyNext = {
+                val item = state.queueItems.getOrNull(state.queueIndex)
+                if (item != null) {
+                    haptics.light()
+                    copyToClipboard(context, item.content)
+                    viewModel.recordUsage(item.id)
+                }
+                scope.launch { viewModel.advanceQueue() }
+            },
+            onMove = { id, newIndex ->
+                haptics.tick()
+                scope.launch { viewModel.moveInQueue(id, newIndex) }
+            },
+            onRemove = { id ->
+                haptics.medium()
+                scope.launch { viewModel.removeFromQueue(id) }
+            },
+            onClear = {
+                haptics.heavy()
+                scope.launch { viewModel.clearQueue() }
+            },
+            onDismiss = { showQueueSheet = false }
+        )
+    }
 }
 
 /**
@@ -358,17 +426,34 @@ fun HomeScreen(
 private fun ClipRowWithHero(
     clip: Clip,
     justCopied: Boolean,
+    multiSelectMode: Boolean,
     listState: androidx.compose.foundation.lazy.LazyListState,
+    reorderList: androidx.compose.runtime.snapshots.SnapshotStateList<Clip>,
     onCopy: (Clip, () -> Offset?) -> Unit,
     onPin: (Clip) -> Unit,
+    onFavorite: (Clip) -> Unit,
     onDelete: (Clip) -> Unit,
     onClick: () -> Unit,
     onLongPress: () -> Unit,
-    onReorderPinned: (List<Long>) -> Unit
+    onReorderPinned: (List<Long>) -> Unit,
+    urlTitle: String? = null
 ) {
     val cardPosition = remember { mutableStateOf<Offset?>(null) }
-    val draggableItems = remember {
-        androidx.compose.runtime.mutableStateListOf<Clip>().apply { add(clip) }
+
+    // Only pinned clips can be drag-reordered, and only outside selection mode.
+    val dragModifier = if (clip.isPinned && !multiSelectMode) {
+        Modifier.draggableItem(
+            listState = listState,
+            itemId = clip.id,
+            items = reorderList,
+            equalityOf = { it.id },
+            onDragEnd = {
+                // Persist the complete pinned order once per drag.
+                onReorderPinned(reorderList.filter { it.isPinned }.map { it.id })
+            }
+        )
+    } else {
+        Modifier
     }
 
     SwipeableRow(
@@ -384,22 +469,18 @@ private fun ClipRowWithHero(
                 .onGloballyPositioned { coords ->
                     cardPosition.value = coords.positionInRoot()
                 }
-                .draggableItem(
-                    listState = listState,
-                    itemId = clip.id,
-                    items = draggableItems
-                ) { _, _, _ ->
-                    if (clip.isPinned) onReorderPinned(draggableItems.filter { it.isPinned }.map { it.id })
-                }
+                .then(dragModifier)
         ) {
             NormalClipCard(
                 clip = clip,
                 justCopied = justCopied,
                 onCopy = { onCopy(clip) { cardPosition.value } },
                 onPin = { onPin(clip) },
+                onFavorite = { onFavorite(clip) },
                 onDelete = { onDelete(clip) },
                 onClick = onClick,
-                onLongPress = onLongPress
+                onLongPress = onLongPress,
+                urlTitle = urlTitle
             )
         }
     }
@@ -410,7 +491,9 @@ private fun ClipRowWithHero(
 private fun NormalTopBar(
     count: Int,
     monitoringActive: Boolean,
-    onToggleMonitoring: () -> Unit
+    queueSize: Int,
+    onToggleMonitoring: () -> Unit,
+    onOpenQueue: () -> Unit
 ) {
     TopAppBar(
         title = {
@@ -424,6 +507,14 @@ private fun NormalTopBar(
             }
         },
         actions = {
+            IconButton(onClick = onOpenQueue) {
+                Icon(
+                    imageVector = Icons.Outlined.Queue,
+                    contentDescription = "Paste queue",
+                    tint = if (queueSize > 0) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             IconButton(onClick = onToggleMonitoring) {
                 Icon(
                     imageVector = if (monitoringActive) Icons.Outlined.Pause else Icons.Outlined.PlayArrow,
@@ -467,9 +558,11 @@ private fun NormalClipCard(
     justCopied: Boolean,
     onCopy: () -> Unit,
     onPin: () -> Unit,
+    onFavorite: () -> Unit,
     onDelete: () -> Unit,
     onClick: () -> Unit,
-    onLongPress: () -> Unit
+    onLongPress: () -> Unit,
+    urlTitle: String? = null
 ) {
     Card(
         modifier = Modifier
@@ -515,6 +608,14 @@ private fun NormalClipCard(
             }
             Row(verticalAlignment = Alignment.Top) {
                 androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
+                IconButton(onClick = onFavorite) {
+                    Icon(
+                        imageVector = if (clip.isFavorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                        contentDescription = "Favorite",
+                        tint = if (clip.isFavorite) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
                 IconButton(onClick = onPin) {
                     Icon(
                         imageVector = if (clip.isPinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
@@ -539,6 +640,20 @@ private fun NormalClipCard(
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    if (clip.hasExpiration) {
+                        Text(
+                            text = "⏳ ${formatRemaining(clip.expiresAt!!)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.tertiary
+                        )
+                    }
+                    if (clip.hasUseLimit) {
+                        Text(
+                            text = "${clip.useCount}/${clip.useLimit}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.tertiary
+                        )
+                    }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = onDelete) {
@@ -554,6 +669,39 @@ private fun NormalClipCard(
             if (showPreview) {
                 InlinePreview(clip.type, clip.content)
             }
+            // URL preview title (fetched in background)
+            if (clip.type == ClipType.URL && !urlTitle.isNullOrBlank()) {
+                Text(
+                    text = urlTitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 2,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+            // One-time codes get a prominent copy button
+            if (clip.type == ClipType.OTP) {
+                val code = ClipClassifier.extractOtp(clip.content)
+                if (code != null) {
+                    Spacer(Modifier.height(10.dp))
+                    Button(
+                        onClick = onCopy,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            Icons.Outlined.ContentCopy,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "Copy code · $code",
+                            style = MaterialTheme.typography.titleSmall
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -567,7 +715,9 @@ private fun copyToClipboard(context: Context, content: String) {
 @Composable
 private fun FilterChipRow(
     activeFilter: ClipType?,
-    onFilterChange: (ClipType?) -> Unit
+    onFilterChange: (ClipType?) -> Unit,
+    favoritesOnly: Boolean,
+    onFavoritesChange: (Boolean) -> Unit
 ) {
     Row(
         modifier = Modifier
@@ -576,6 +726,22 @@ private fun FilterChipRow(
             .padding(horizontal = 12.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
+        FilterChip(
+            selected = favoritesOnly,
+            onClick = { onFavoritesChange(!favoritesOnly) },
+            label = { Text("Favorites") },
+            leadingIcon = {
+                Icon(
+                    imageVector = if (favoritesOnly) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp)
+                )
+            },
+            colors = FilterChipDefaults.filterChipColors(
+                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+        )
         FilterChip(
             selected = activeFilter == null,
             onClick = { onFilterChange(null) },
@@ -617,6 +783,17 @@ private fun formatTime(ts: Long): String {
         diff < 86_400_000 -> "${diff / 3_600_000}h ago"
         diff < 7 * 86_400_000 -> "${diff / 86_400_000}d ago"
         else -> DateFormat.getDateInstance(DateFormat.SHORT).format(Date(ts))
+    }
+}
+
+private fun formatRemaining(expiresAt: Long): String {
+    val diff = expiresAt - System.currentTimeMillis()
+    if (diff <= 0) return "now"
+    val minutes = diff / 60_000
+    return when {
+        minutes < 60 -> "${minutes}m"
+        minutes < 24 * 60 -> "${minutes / 60}h"
+        else -> "${minutes / (24 * 60)}d"
     }
 }
 
