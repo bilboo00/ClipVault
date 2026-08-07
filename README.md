@@ -1,7 +1,7 @@
 # ClipVault
 
 <p align="left">
-  <img src="store_assets/icon_512.jpg" alt="ClipVault" width="96" height="96">
+  <img src="store_assets/icon_512.png" alt="ClipVault" width="96" height="96">
 </p>
 
 **Local-first clipboard manager for Android.** Capture, organize, search, and restore everything you copy — with zero cloud dependency.
