@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.ClipboardManager" parent="android:Theme.Material.Light.NoActionBar">
+    <style name="Theme.ClipboardManager" parent="Theme.AppCompat.Light.NoActionBar">
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar">true</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
     </style>
 
-    <style name="Theme.ClipboardManager.Splash" parent="Theme.SplashScreen">
+    <style name="Theme.ClipboardManager.Splash" parent="Theme.AppCompat.Light.NoActionBar">
         <item name="windowSplashScreenBackground">@drawable/splash_background</item>
         <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash</item>
         <item name="postSplashScreenTheme">@style/Theme.ClipboardManager</item>
