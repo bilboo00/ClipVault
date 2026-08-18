@@ -12,6 +12,7 @@ import com.clipvault.manager.data.repository.TagRepository
 import com.clipvault.manager.domain.PasteQueueManager
 import com.clipvault.manager.domain.model.Clip
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -21,6 +22,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -36,6 +38,10 @@ data class ClipDetailState(
     val collections: List<CollectionEntity> = emptyList()
 )
 
+sealed class ClipDetailEvent {
+    data class Deleted(val entity: com.clipvault.manager.data.local.entity.ClipEntity) : ClipDetailEvent()
+}
+
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class ClipDetailViewModel @Inject constructor(
@@ -49,6 +55,9 @@ class ClipDetailViewModel @Inject constructor(
 
     private val idFlow = MutableStateFlow(0L)
     private val unlockedSet = MutableStateFlow<Set<Long>>(emptySet())
+
+    private val _events = Channel<ClipDetailEvent>(Channel.BUFFERED)
+    val events: kotlinx.coroutines.flow.Flow<ClipDetailEvent> = _events.receiveAsFlow()
 
     val state: StateFlow<ClipDetailState> = idFlow
         .flatMapLatest { id ->
@@ -110,9 +119,14 @@ class ClipDetailViewModel @Inject constructor(
         collectionRepository.setCollectionsForClip(clipId, next.toList())
     }
 
-    fun delete(clip: Clip, onDone: () -> Unit) = viewModelScope.launch {
+    fun delete(clip: Clip) = viewModelScope.launch {
+        val entity = clipDao.getById(clip.id) ?: return@launch
         repository.delete(clip.id)
-        onDone()
+        _events.send(ClipDetailEvent.Deleted(entity))
+    }
+
+    fun undoDelete(entity: com.clipvault.manager.data.local.entity.ClipEntity) = viewModelScope.launch {
+        repository.insertForUndo(entity)
     }
 
     fun setNotes(notes: String) = viewModelScope.launch {
@@ -146,11 +160,6 @@ class ClipDetailViewModel @Inject constructor(
         unlockedSet.value = if (newLocked) unlockedSet.value - clip.id
         else unlockedSet.value + clip.id
         onResult(newLocked)
-    }
-
-    fun unlock(clip: Clip, onSuccess: () -> Unit) {
-        unlockedSet.value = unlockedSet.value + clip.id
-        onSuccess()
     }
 
     fun relock(clip: Clip) {

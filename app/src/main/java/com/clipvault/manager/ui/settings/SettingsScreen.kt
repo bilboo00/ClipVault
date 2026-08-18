@@ -2,7 +2,6 @@ package com.clipvault.manager.ui.settings
 
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -86,7 +85,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.clipvault.manager.BuildConfig
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private data class IconAccent(val bg: Color, val tint: Color)
 
@@ -128,8 +129,10 @@ fun SettingsScreen(
                 try {
                     val clips = viewModel.exportAllClips()
                     val content = com.clipvault.manager.data.export.ClipExporter.export(clips, selectedExportFormat)
-                    context.contentResolver.openOutputStream(uri)?.use { stream ->
-                        stream.write(content.toByteArray())
+                    withContext(Dispatchers.IO) {
+                        context.contentResolver.openOutputStream(uri)?.use { stream ->
+                            stream.write(content.toByteArray())
+                        }
                     }
                     exportMessage = "Exported ${clips.size} clips as ${selectedExportFormat.extension.uppercase()}"
                 } catch (e: Exception) {
@@ -145,15 +148,17 @@ fun SettingsScreen(
         if (uri != null) {
             coroutineScope.launch {
                 try {
-                    val raw = context.contentResolver.openInputStream(uri)?.use { stream ->
-                        stream.bufferedReader().readText()
-                    } ?: throw Exception("Could not read file")
-                    val clips = if (raw.trimStart().startsWith("[")) {
-                        com.clipvault.manager.data.export.ClipJsonExporter.importFromJson(raw)
-                    } else if (raw.trimStart().startsWith("{")) {
-                        com.clipvault.manager.data.export.ClipJsonExporter.importFromJson(raw)
-                    } else {
-                        throw Exception("Only JSON exports are supported for import.")
+                    val clips = withContext(Dispatchers.IO) {
+                        val raw = context.contentResolver.openInputStream(uri)?.use { stream ->
+                            stream.bufferedReader().readText()
+                        } ?: throw Exception("Could not read file")
+                        if (raw.trimStart().startsWith("[")) {
+                            com.clipvault.manager.data.export.ClipJsonExporter.importFromJson(raw)
+                        } else if (raw.trimStart().startsWith("{")) {
+                            com.clipvault.manager.data.export.ClipJsonExporter.importFromJson(raw)
+                        } else {
+                            throw Exception("Only JSON exports are supported for import.")
+                        }
                     }
                     val count = viewModel.importClips(clips)
                     exportMessage = "Imported $count clips"
@@ -505,20 +510,23 @@ fun SettingsScreen(
     if (showRetentionSheet) {
         RetentionPickerSheet(
             selected = state.retentionDays,
-            onSelect = { viewModel.setRetention(it); showRetentionSheet = false }
+            onSelect = { viewModel.setRetention(it); showRetentionSheet = false },
+            onDismiss = { showRetentionSheet = false }
         )
     }
 
     if (showThemeSheet) {
         ThemePickerSheet(
             selected = state.themeMode,
-            onSelect = { viewModel.setTheme(it); showThemeSheet = false }
+            onSelect = { viewModel.setTheme(it); showThemeSheet = false },
+            onDismiss = { showThemeSheet = false }
         )
     }
 
     if (showExportFormatSheet) {
         ExportFormatPickerSheet(
             selected = selectedExportFormat,
+            onDismiss = { showExportFormatSheet = false },
             onSelect = { format ->
                 selectedExportFormat = format
                 showExportFormatSheet = false
@@ -541,7 +549,7 @@ private fun SectionHeader(text: String) {
             letterSpacing = 1.2.sp
         ),
         color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(start = 28.dp, top = 20.dp, bottom = 10.dp)
+        modifier = Modifier.padding(start = 24.dp, top = 16.dp, bottom = 8.dp)
     )
 }
 
@@ -552,7 +560,13 @@ private fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
             .fillMaxWidth()
             .padding(horizontal = 16.dp),
         shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+        ),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
+        ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(content = content)
@@ -621,7 +635,7 @@ private fun ChevronRow(
             .fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        IconBadge(accent, icon, destructive = destructive)
+        IconBadge(accent, icon)
         Spacer(Modifier.width(16.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
@@ -649,18 +663,19 @@ private fun ChevronRow(
 }
 
 @Composable
-private fun IconBadge(accent: IconAccent, icon: ImageVector, destructive: Boolean = false) {
+private fun IconBadge(accent: IconAccent, icon: ImageVector) {
+    // Tint-at-alpha background adapts to light/dark/AMOLED schemes (no hardcoded pastels).
     Box(
         modifier = Modifier
             .size(40.dp)
             .clip(CircleShape)
-            .background(if (destructive) Red.bg else accent.bg),
+            .background(accent.tint.copy(alpha = 0.16f)),
         contentAlignment = Alignment.Center
     ) {
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = if (destructive) Red.tint else accent.tint,
+            tint = accent.tint,
             modifier = Modifier.size(20.dp)
         )
     }
@@ -672,11 +687,12 @@ private fun IconBadge(accent: IconAccent, icon: ImageVector, destructive: Boolea
 @Composable
 private fun RetentionPickerSheet(
     selected: Int,
-    onSelect: (Int) -> Unit
+    onSelect: (Int) -> Unit,
+    onDismiss: () -> Unit
 ) {
     val state = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(
-        onDismissRequest = { /* handled by parent state */ },
+        onDismissRequest = onDismiss,
         sheetState = state,
         containerColor = MaterialTheme.colorScheme.surface
     ) {
@@ -715,11 +731,12 @@ private fun RetentionPickerSheet(
 @Composable
 private fun ThemePickerSheet(
     selected: Int,
-    onSelect: (Int) -> Unit
+    onSelect: (Int) -> Unit,
+    onDismiss: () -> Unit
 ) {
     val state = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(
-        onDismissRequest = { },
+        onDismissRequest = onDismiss,
         sheetState = state,
         containerColor = MaterialTheme.colorScheme.surface
     ) {
@@ -793,8 +810,7 @@ private fun bubbleSubtitle(context: Context): String {
 }
 
 private fun canDrawOverlays(context: Context): Boolean =
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
-        Settings.canDrawOverlays(context) else true
+    Settings.canDrawOverlays(context)
 
 private fun retentionLabel(days: Int): String = when (days) {
     0 -> "Never"
@@ -817,11 +833,12 @@ private fun themeLabel(mode: Int): String = when (mode) {
 @Composable
 private fun ExportFormatPickerSheet(
     selected: com.clipvault.manager.data.export.ExportFormat,
+    onDismiss: () -> Unit,
     onSelect: (com.clipvault.manager.data.export.ExportFormat) -> Unit
 ) {
     val state = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(
-        onDismissRequest = { },
+        onDismissRequest = onDismiss,
         sheetState = state,
         containerColor = MaterialTheme.colorScheme.surface
     ) {
@@ -846,17 +863,15 @@ private fun ExportFormatPickerSheet(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { onSelect(format) }
-                        .background(
-                            if (selected == format) MaterialTheme.colorScheme.primaryContainer
-                            else MaterialTheme.colorScheme.surface
-                        )
-                        .padding(horizontal = 24.dp, vertical = 14.dp),
+                        .padding(horizontal = 24.dp, vertical = 16.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
                         format.extension.uppercase(),
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MaterialTheme.typography.bodyLarge,
                         fontWeight = if (selected == format) FontWeight.SemiBold else FontWeight.Normal,
+                        color = if (selected == format) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.weight(1f)
                     )
                     AnimatedVisibility(visible = selected == format, enter = fadeIn(), exit = fadeOut()) {

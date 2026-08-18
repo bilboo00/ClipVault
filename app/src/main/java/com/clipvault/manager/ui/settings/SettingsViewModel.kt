@@ -2,7 +2,6 @@ package com.clipvault.manager.ui.settings
 
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import android.provider.Settings
 import android.util.Log
 import androidx.lifecycle.ViewModel
@@ -102,7 +101,7 @@ class SettingsViewModel @Inject constructor(
     fun setBubbleEnabled(enabled: Boolean) = viewModelScope.launch {
         try {
             if (enabled) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(context)) {
+                if (!Settings.canDrawOverlays(context)) {
                     return@launch
                 }
                 settings.setBubbleEnabled(true)
@@ -181,12 +180,10 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun overlayPermissionIntent(): Intent =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            Intent(
-                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                android.net.Uri.parse("package:${context.packageName}")
-            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        } else Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+        Intent(
+            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+            android.net.Uri.parse("package:${context.packageName}")
+        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
     fun accessibilitySettingsIntent(): Intent =
         Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)

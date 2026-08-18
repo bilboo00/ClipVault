@@ -1,6 +1,9 @@
 package com.clipvault.manager.ui.stats
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -124,6 +127,9 @@ fun StatsScreen(
                         Card(
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(16.dp),
+                            border = BorderStroke(
+                                1.dp, MaterialTheme.colorScheme.outlineVariant
+                            ),
                             colors = CardDefaults.cardColors(
                                 containerColor = MaterialTheme.colorScheme.surfaceVariant
                             )
@@ -155,31 +161,46 @@ private fun StatCard(
     Card(
         modifier = modifier,
         shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(
+            1.dp, MaterialTheme.colorScheme.outlineVariant
+        ),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
         )
     ) {
         Column(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier
+                .padding(top = 12.dp, bottom = 16.dp)
+                .padding(horizontal = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Icon(
-                icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(28.dp)
-            )
-            Spacer(Modifier.height(8.dp))
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .background(
+                        MaterialTheme.colorScheme.primaryContainer,
+                        shape = RoundedCornerShape(14.dp)
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+            Spacer(Modifier.height(10.dp))
             Text(
                 value,
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onPrimaryContainer
+                color = MaterialTheme.colorScheme.onSurface
             )
             Text(
                 label,
                 style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }

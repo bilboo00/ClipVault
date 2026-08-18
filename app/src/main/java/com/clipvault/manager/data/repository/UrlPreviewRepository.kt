@@ -40,14 +40,24 @@ class UrlPreviewRepository @Inject constructor(
     fun fetchInBackground(url: String) {
         scope.launch {
             val title = runCatching { fetchTitle(url) }.getOrNull()
-            dao.insert(UrlPreviewEntity(url = url, title = title))
+            persist(url, title)
         }
     }
 
     suspend fun refresh(url: String): String? {
         val title = runCatching { fetchTitle(url) }.getOrNull()
-        dao.insert(UrlPreviewEntity(url = url, title = title))
+        persist(url, title)
         return title
+    }
+
+    /**
+     * Persist a fetch result without letting a failure (null title) overwrite
+     * a previously cached title. A null result still creates a row when none
+     * exists so permanent failures get a negative-cache entry.
+     */
+    private suspend fun persist(url: String, title: String?) {
+        if (title == null && dao.get(url) != null) return
+        dao.insert(UrlPreviewEntity(url = url, title = title))
     }
 
     private fun fetchTitle(url: String): String? {

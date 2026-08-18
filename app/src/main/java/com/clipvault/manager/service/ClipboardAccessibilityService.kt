@@ -30,6 +30,7 @@ class ClipboardAccessibilityService : AccessibilityService() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var lastSeen: String? = null
     private var lastSeenAt: Long = 0L
+    private var lastVerifyAt: Long = 0L
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -50,9 +51,12 @@ class ClipboardAccessibilityService : AccessibilityService() {
         }
     }
 
+    @android.annotation.SuppressLint("SwitchIntDef")
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
         try {
+            // eventType is a framework int without an @IntDef we can reuse;
+            // the constants below are still compile-time verified by name.
             when (event.eventType) {
                 AccessibilityEvent.TYPE_VIEW_CLICKED,
                 AccessibilityEvent.TYPE_VIEW_LONG_CLICKED -> {
@@ -91,7 +95,24 @@ class ClipboardAccessibilityService : AccessibilityService() {
                 if (clip == null || clip.itemCount == 0) return@launch
                 val text = (clip.getItemAt(0).coerceToText(this@ClipboardAccessibilityService)
                     ?.toString() ?: "").trim()
-                if (text.isBlank() || text == lastSeen) return@launch
+                if (text.isBlank()) return@launch
+                if (text != lastSeen) {
+                    // New clipboard value — delete-suppressions for the previous
+                    // content no longer apply.
+                    repository.clearDeleteSuppressions()
+                }
+                if (text == lastSeen) {
+                    // Same content as before — never re-add content the user
+                    // explicitly deleted while it's still on the clipboard;
+                    // otherwise still check it wasn't deleted from history
+                    // (delete → re-copy must re-save), but throttle the DB query
+                    // so frequent events don't hammer Room.
+                    if (repository.isContentSuppressed(text)) return@launch
+                    val now = System.currentTimeMillis()
+                    if (now - lastVerifyAt < REVERIFY_INTERVAL_MS) return@launch
+                    lastVerifyAt = now
+                    if (repository.contentExists(text)) return@launch
+                }
                 // Advance lastSeen even when saveIfNew dedupes, so window-change
                 // events don't re-query the DB for already-known content.
                 lastSeen = text
@@ -113,5 +134,6 @@ class ClipboardAccessibilityService : AccessibilityService() {
 
     companion object {
         private const val READ_DEBOUNCE_MS = 400L
+        private const val REVERIFY_INTERVAL_MS = 30_000L
     }
 }

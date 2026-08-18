@@ -3,7 +3,6 @@ package com.clipvault.manager.ui.onboarding
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import android.provider.Settings
 import android.view.accessibility.AccessibilityManager
 import androidx.lifecycle.ViewModel
@@ -92,14 +91,12 @@ class OnboardingViewModel @Inject constructor(
     }
 
     fun enableOverlay() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            context.startActivity(
-                Intent(
-                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                    android.net.Uri.parse("package:${context.packageName}")
-                ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            )
-        }
+        context.startActivity(
+            Intent(
+                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                android.net.Uri.parse("package:${context.packageName}")
+            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
     }
 
     private fun isAccessibilityEnabled(): Boolean {
@@ -111,5 +108,5 @@ class OnboardingViewModel @Inject constructor(
     }
 
     private fun isOverlayGranted(): Boolean =
-        Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(context)
+        Settings.canDrawOverlays(context)
 }

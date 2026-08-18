@@ -1,7 +1,6 @@
 package com.clipvault.manager.widget
 
 import android.annotation.SuppressLint
-import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import androidx.compose.runtime.Composable
@@ -38,6 +37,7 @@ import androidx.glance.unit.ColorProvider
 import com.clipvault.manager.app.MainActivity
 import com.clipvault.manager.data.local.ClipDatabase
 import com.clipvault.manager.data.local.entity.ClipEntity
+import com.clipvault.manager.util.ClipUtils
 import kotlinx.coroutines.flow.first
 
 // ── Colours ──────────────────────────────────────────────────────────────────
@@ -59,6 +59,7 @@ private val WidgetPinBadge = ColorProvider(0xFFFFD54F.toInt())
 
 private val Context.dataStore by preferencesDataStore(name = "settings")
 private val KEY_MASK = booleanPreferencesKey("mask_sensitive")
+private val KEY_BIOMETRIC = booleanPreferencesKey("require_biometric")
 
 // ── Widget ───────────────────────────────────────────────────────────────────
 
@@ -87,14 +88,33 @@ class ClipboardGlanceWidget : GlanceAppWidget() {
                 .background(WidgetBackground)
                 .cornerRadius(20.dp)
         ) {
-            Text(
-                text = "ClipVault",
-                style = TextStyle(
-                    color = WidgetTextPrimary,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold
+            Row(
+                modifier = GlanceModifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "ClipVault",
+                    style = TextStyle(
+                        color = WidgetTextPrimary,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold
+                    ),
+                    modifier = GlanceModifier.defaultWeight()
                 )
-            )
+                if (masking) {
+                    Text(
+                        text = "hidden",
+                        style = TextStyle(color = WidgetTextSecondary, fontSize = 10.sp),
+                        modifier = GlanceModifier.padding(
+                            horizontal = 8.dp,
+                            vertical = 2.dp
+                        ).background(WidgetSurface).cornerRadius(8.dp).padding(
+                            horizontal = 8.dp,
+                            vertical = 2.dp
+                        )
+                    )
+                }
+            }
             Spacer(modifier = GlanceModifier.size(6.dp))
             if (clips.isEmpty()) {
                 Box(
@@ -135,7 +155,9 @@ class ClipboardGlanceWidget : GlanceAppWidget() {
 
     @Composable
     private fun WidgetRow(clip: ClipEntity, masking: Boolean) {
-        val display = if (masking) "••••••••" else clip.content.take(40).let {
+        val display = if (clip.isLocked) {
+            "🔒 Locked"
+        } else if (masking) "••••••••" else clip.content.take(40).let {
             if (clip.content.length > 40) "$it…" else it
         }
         Row(
@@ -143,7 +165,7 @@ class ClipboardGlanceWidget : GlanceAppWidget() {
                 .fillMaxWidth()
                 .padding(vertical = 3.dp)
                 .background(WidgetSurface)
-                .cornerRadius(12.dp)
+                .cornerRadius(14.dp)
                 .padding(start = 10.dp, end = 4.dp, top = 8.dp, bottom = 8.dp)
                 .clickable(actionLaunchMain()),
             verticalAlignment = Alignment.CenterVertically
@@ -201,7 +223,8 @@ class ClipboardGlanceWidget : GlanceAppWidget() {
 
     private suspend fun readMasking(context: Context): Boolean =
         try {
-            context.dataStore.data.first()[KEY_MASK] ?: false
+            val prefs = context.dataStore.data.first()
+            prefs[KEY_MASK] == true || prefs[KEY_BIOMETRIC] == true
         } catch (_: Exception) {
             false
         }
@@ -212,13 +235,8 @@ class ClipboardGlanceWidget : GlanceAppWidget() {
             ClipDatabase::class.java,
             "clipboard.db"
         )
-            .addMigrations(
-                ClipDatabase.MIGRATION_1_2,
-                ClipDatabase.MIGRATION_2_3,
-                ClipDatabase.MIGRATION_3_4,
-                ClipDatabase.MIGRATION_4_5,
-                ClipDatabase.MIGRATION_5_6
-            )
+            .addMigrations(*ClipDatabase.MIGRATIONS)
+            .fallbackToDestructiveMigration()
             .allowMainThreadQueries()
             .build()
 
@@ -244,18 +262,16 @@ class CopyClipAction : ActionCallback {
                 ClipDatabase::class.java,
                 "clipboard.db"
             )
-                .addMigrations(
-                    ClipDatabase.MIGRATION_1_2,
-                    ClipDatabase.MIGRATION_2_3,
-                    ClipDatabase.MIGRATION_3_4,
-                    ClipDatabase.MIGRATION_4_5,
-                    ClipDatabase.MIGRATION_5_6
-                )
+                .addMigrations(*ClipDatabase.MIGRATIONS)
+                .fallbackToDestructiveMigration()
                 .allowMainThreadQueries()
                 .build()
             val clip = db.clipDao().getById(clipId) ?: return
+            if (clip.isLocked) return
             val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            cm.setPrimaryClip(ClipData.newPlainText("clip", clip.content))
+            cm.setPrimaryClip(ClipUtils.clipDataFor(context, clip.content, clip.imageUri))
+            // Widget copies count toward use-limit expiry like in-app copies.
+            db.clipDao().incrementUseCount(clipId)
         } catch (_: Exception) {
         } finally {
             db?.close()

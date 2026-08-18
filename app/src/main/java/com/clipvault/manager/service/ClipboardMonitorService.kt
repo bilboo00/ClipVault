@@ -5,12 +5,14 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
-import android.os.Build
+
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import com.clipvault.manager.app.MainActivity
@@ -26,6 +28,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
@@ -41,17 +44,29 @@ class ClipboardMonitorService : Service() {
     private var lastSeen: String? = null
     private var lastImageUri: String? = null
     private var lastImagePath: String? = null
+    private var lastVerifyAt: Long = 0L
     private lateinit var clipboardManager: ClipboardManager
     private var listener: ClipboardManager.OnPrimaryClipChangedListener? = null
     @Volatile private var maskContent = false
+    @Volatile private var screenOff = false
+    @Volatile private var lastPreview: String? = null
+    private var screenReceiver: BroadcastReceiver? = null
 
+    @android.annotation.SuppressLint("InlinedApi")
     override fun onCreate() {
         super.onCreate()
         clipboardManager = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
-        // Cache the masking setting and keep it updated
+        // Cache the masking setting and keep it updated. Mask whenever sensitive
+        // content masking OR the biometric app lock is enabled — a biometric
+        // lock must never leak clip previews through the ongoing notification.
         scope.launch {
-            settingsManager.maskSensitiveContent.collect { maskContent = it }
+            combine(
+                settingsManager.maskSensitiveContent,
+                settingsManager.requireBiometric
+            ) { mask, biometric -> mask || biometric }
+                .collect { maskContent = it }
         }
+        registerScreenReceiver()
         createChannel()
         startForegroundCompat(NOTIFICATION_ID, buildNotification(null), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         startListening()
@@ -153,11 +168,21 @@ class ClipboardMonitorService : Service() {
 
                 if (imageUri != null) {
                     val uriKey = item.uri.toString()
+                    val now = System.currentTimeMillis()
                     // Same source URI as the last capture — skip unless the clip
-                    // was deleted from history (delete → re-copy must re-save).
+                    // was deleted from history (delete → re-copy must re-save),
+                    // but never re-add an image the user explicitly deleted.
+                    // DB checks are throttled so the poll loop doesn't hammer Room.
                     if (uriKey == lastImageUri) {
                         val path = lastImagePath
-                        if (path != null && repository.imageExists(path)) return@launch
+                        if (path != null) {
+                            if (repository.isImageSuppressed(path)) return@launch
+                            if (now - lastVerifyAt < REVERIFY_INTERVAL_MS) return@launch
+                            lastVerifyAt = now
+                            if (repository.imageExists(path)) return@launch
+                        }
+                    } else {
+                        repository.clearDeleteSuppressions()
                     }
                     val savedPath = ImageCopier.copyToInternalStorage(this@ClipboardMonitorService, imageUri)
                     if (savedPath != null) {
@@ -177,9 +202,21 @@ class ClipboardMonitorService : Service() {
                         ?: item.coerceToText(this@ClipboardMonitorService)?.toString()
                 }.orEmpty()
                 if (text.isBlank()) return@launch
+                if (text != lastSeen) {
+                    // New clipboard value — delete-suppressions for the previous
+                    // content no longer apply.
+                    repository.clearDeleteSuppressions()
+                }
                 if (text == lastSeen) {
-                    // Same content as the last capture — still verify it hasn't
-                    // been deleted from history before skipping.
+                    // Same content as the last capture — never re-add content the
+                    // user explicitly deleted while it's still on the clipboard;
+                    // otherwise still verify it wasn't deleted from history, but
+                    // throttle the DB query so the 800ms poll doesn't fire
+                    // ~108k COUNTs/day.
+                    if (repository.isContentSuppressed(text)) return@launch
+                    val now = System.currentTimeMillis()
+                    if (now - lastVerifyAt < REVERIFY_INTERVAL_MS) return@launch
+                    lastVerifyAt = now
                     if (repository.contentExists(text)) return@launch
                 }
                 val saved = repository.saveIfNew(text, sourceLabel = null)
@@ -214,7 +251,7 @@ class ClipboardMonitorService : Service() {
             .setSmallIcon(R.drawable.ic_clipboard)
             .setContentTitle(getString(R.string.notif_title))
             .setContentText(
-                if (maskContent && preview != null) getString(R.string.notif_idle)
+                if ((maskContent || screenOff) && preview != null) getString(R.string.notif_idle)
                 else preview?.take(80) ?: getString(R.string.notif_idle)
             )
             .setOngoing(true)
@@ -227,34 +264,65 @@ class ClipboardMonitorService : Service() {
     }
 
     private fun updateNotification(preview: String? = null, paused: Boolean = false) {
+        if (preview != null) lastPreview = preview
         try {
             val nm = getSystemService(NotificationManager::class.java)
             nm.notify(NOTIFICATION_ID, buildNotification(preview, paused))
         } catch (_: Exception) { /* never crash from notif update */ }
     }
 
-    private fun createChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            try {
-                val nm = getSystemService(NotificationManager::class.java)
-                if (nm.getNotificationChannel(CHANNEL_ID) == null) {
-                    val channel = NotificationChannel(
-                        CHANNEL_ID,
-                        getString(R.string.channel_name),
-                        NotificationManager.IMPORTANCE_LOW
-                    ).apply {
-                        description = getString(R.string.channel_desc)
-                        setShowBadge(false)
+    /**
+     * Track screen on/off so the ongoing notification never shows a clip
+     * preview while the device is locked — the manifest-registered
+     * [ScreenOffReceiver] clears the system clipboard, but the notification
+     * text must be masked too (it's visible on the lock screen).
+     */
+    private fun registerScreenReceiver() {
+        if (screenReceiver != null) return
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent?) {
+                when (intent?.action) {
+                    Intent.ACTION_SCREEN_OFF -> {
+                        screenOff = true
+                        updateNotification(if (maskContent) null else lastPreview)
                     }
-                    nm.createNotificationChannel(channel)
+                    Intent.ACTION_SCREEN_ON -> {
+                        screenOff = false
+                        updateNotification(lastPreview)
+                    }
                 }
-            } catch (_: Exception) { /* ignore */ }
+            }
         }
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_OFF)
+            addAction(Intent.ACTION_SCREEN_ON)
+        }
+        runCatching { registerReceiver(receiver, filter) }
+        screenReceiver = receiver
+    }
+
+    private fun createChannel() {
+        try {
+            val nm = getSystemService(NotificationManager::class.java)
+            if (nm.getNotificationChannel(CHANNEL_ID) == null) {
+                val channel = NotificationChannel(
+                    CHANNEL_ID,
+                    getString(R.string.channel_name),
+                    NotificationManager.IMPORTANCE_LOW
+                ).apply {
+                    description = getString(R.string.channel_desc)
+                    setShowBadge(false)
+                }
+                nm.createNotificationChannel(channel)
+            }
+        } catch (_: Exception) { /* ignore */ }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        runCatching { screenReceiver?.let { unregisterReceiver(it) } }
+        screenReceiver = null
         stopListening()
         scope.cancel()
         super.onDestroy()
@@ -267,12 +335,12 @@ class ClipboardMonitorService : Service() {
 
         const val ACTION_PAUSE = "com.clipvault.manager.PAUSE"
         const val ACTION_RESUME = "com.clipvault.manager.RESUME"
+        private const val REVERIFY_INTERVAL_MS = 30_000L
 
         fun start(ctx: Context) {
             try {
                 val i = Intent(ctx, ClipboardMonitorService::class.java)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) ctx.startForegroundService(i)
-                else ctx.startService(i)
+                ctx.startForegroundService(i)
             } catch (_: Exception) { /* defensive — never crash caller */ }
         }
 

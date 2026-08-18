@@ -90,7 +90,7 @@ fun MultiSelectClipRow(
         elevation = CardDefaults.cardElevation(defaultElevation = if (isSelected) 2.dp else 0.dp)
     ) {
         Row(
-            modifier = Modifier.padding(14.dp).fillMaxWidth(),
+            modifier = Modifier.padding(10.dp).fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (isMultiSelect) {
@@ -101,9 +101,9 @@ fun MultiSelectClipRow(
                 Text(
                     text = clip.preview,
                     style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 4
+                    maxLines = 2
                 )
-                Spacer(modifier = Modifier.size(8.dp))
+                Spacer(modifier = Modifier.size(4.dp))
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -113,11 +113,15 @@ fun MultiSelectClipRow(
             }
             if (!isMultiSelect) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onDelete) {
+                    IconButton(
+                        onClick = onDelete,
+                        modifier = Modifier.size(32.dp)
+                    ) {
                         Icon(
                             Icons.Outlined.Delete,
                             contentDescription = "Delete",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp)
                         )
                     }
                     AnimatedCopyButton(isCopied = false, onClick = onCopy)

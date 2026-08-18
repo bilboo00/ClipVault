@@ -23,7 +23,11 @@ class CollectionRepository @Inject constructor(
 
     suspend fun update(collection: CollectionEntity) = dao.update(collection)
 
-    suspend fun delete(id: Long) = dao.deleteById(id)
+    suspend fun delete(id: Long) {
+        // Remove the collection row and its cross-refs so usage counts stay honest.
+        dao.deleteById(id)
+        dao.deleteCrossRefsForCollection(id)
+    }
 
     suspend fun setCollectionsForClip(clipId: Long, collectionIds: List<Long>) =
         dao.setCollectionsForClip(clipId, collectionIds)

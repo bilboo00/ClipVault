@@ -21,6 +21,9 @@ class OpenGraphFetcher @Inject constructor(
             val doc = Jsoup.connect(url)
                 .userAgent("Mozilla/5.0 (Linux; Android 14) ClipVault/1.1")
                 .timeout(8000)
+                // Cap the downloaded body so a huge (or maliciously infinite)
+                // page can't blow up memory; previews only need <head> anyway.
+                .maxBodySize(MAX_PAGE_BYTES)
                 .get()
 
             val title = firstNonBlank(
@@ -60,6 +63,11 @@ class OpenGraphFetcher @Inject constructor(
     private fun meta(doc: org.jsoup.nodes.Document, attr: String, key: String): String? {
         val el = doc.select("meta[$attr=$key]").firstOrNull() ?: return null
         return el.attr("content").takeIf { it.isNotBlank() }
+    }
+
+    private companion object {
+        /** jsoup byte cap for preview pages (256 KiB is ample for <head>). */
+        const val MAX_PAGE_BYTES = 256 * 1024
     }
 
     private fun firstNonBlank(vararg values: String?): String? =

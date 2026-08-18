@@ -78,6 +78,21 @@ interface ClipDao {
     @Query("DELETE FROM clips WHERE id IN (:ids)")
     suspend fun deleteAllByIds(ids: List<Long>)
 
+    /**
+     * Merge all duplicate rows of a group into [keepId] atomically: use counts
+     * are folded, tag/collection crossrefs are re-pointed, notes are kept if
+     * the keeper has none, and the duplicates are deleted — all in one
+     * transaction so a crash mid-merge can't leave the history half-migrated.
+     */
+    @Transaction
+    suspend fun mergeDuplicateGroup(keepId: Long, duplicateIds: List<Long>, notesToKeep: String?) {
+        foldUseCount(keepId, duplicateIds)
+        moveTagsTo(keepId, duplicateIds)
+        moveCollectionsTo(keepId, duplicateIds)
+        if (!notesToKeep.isNullOrBlank()) setNotes(keepId, notesToKeep)
+        deleteAllByIds(duplicateIds)
+    }
+
     @Query("SELECT * FROM clips WHERE content LIKE '%' || :query || '%' ESCAPE '\\' ORDER BY isPinned DESC, sortOrder ASC, createdAt DESC LIMIT 100")
     fun search(query: String): Flow<List<ClipEntity>>
 
@@ -116,6 +131,32 @@ interface ClipDao {
     @Query("SELECT COUNT(*) FROM clips WHERE imageUri = :path LIMIT 1")
     suspend fun countByImageUri(path: String): Int
 
+    @Query("SELECT imageUri FROM clips WHERE imageUri IS NOT NULL")
+    suspend fun getAllImagePaths(): List<String>
+
+    @Query("UPDATE clips SET imageUri = :newPath WHERE imageUri = :oldPath")
+    suspend fun updateImagePath(oldPath: String, newPath: String)
+
+    @Query("DELETE FROM clip_tags WHERE clipId NOT IN (SELECT id FROM clips)")
+    suspend fun purgeOrphanedTagRefs(): Int
+
+    @Query("DELETE FROM clip_tags WHERE tagId NOT IN (SELECT id FROM tags)")
+    suspend fun purgeOrphanedTagOwners(): Int
+
+    @Query("DELETE FROM clip_collections WHERE clipId NOT IN (SELECT id FROM clips)")
+    suspend fun purgeOrphanedCollectionRefs(): Int
+
+    @Query("DELETE FROM clip_collections WHERE collectionId NOT IN (SELECT id FROM collections)")
+    suspend fun purgeOrphanedCollectionOwners(): Int
+
+    @Transaction
+    suspend fun purgeOrphanedCrossRefs() {
+        purgeOrphanedTagRefs()
+        purgeOrphanedTagOwners()
+        purgeOrphanedCollectionRefs()
+        purgeOrphanedCollectionOwners()
+    }
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(clip: ClipEntity): Long
 
@@ -149,6 +190,18 @@ interface ClipDao {
     @Query("SELECT * FROM clips WHERE id IN (:ids)")
     suspend fun getByIds(ids: List<Long>): List<ClipEntity>
 
+    @Query("SELECT * FROM clips WHERE isPinned = 0")
+    suspend fun getUnpinned(): List<ClipEntity>
+
+    @Query("SELECT * FROM clips WHERE expiresAt IS NOT NULL AND expiresAt < :now AND isPinned = 0")
+    suspend fun getExpiredBefore(now: Long): List<ClipEntity>
+
+    @Query("SELECT * FROM clips WHERE useLimit IS NOT NULL AND useCount >= useLimit AND isPinned = 0")
+    suspend fun getExhausted(): List<ClipEntity>
+
+    @Query("SELECT * FROM clips WHERE isPinned = 0 AND createdAt < :cutoff")
+    suspend fun getOlderThan(cutoff: Long): List<ClipEntity>
+
     @Query("DELETE FROM clips")
     suspend fun deleteAll()
 
@@ -166,6 +219,18 @@ interface ClipDao {
 
     @Query("SELECT SUM(LENGTH(content)) FROM clips")
     suspend fun totalContentLength(): Long?
+
+    @Query("SELECT COUNT(*) FROM clips")
+    fun observeCount(): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM clips WHERE createdAt >= :since")
+    fun observeCountSince(since: Long): Flow<Int>
+
+    @Query("SELECT type, COUNT(*) as cnt FROM clips GROUP BY type ORDER BY cnt DESC")
+    fun observeCountByType(): Flow<List<TypeCount>>
+
+    @Query("SELECT SUM(LENGTH(content)) FROM clips")
+    fun observeTotalContentLength(): Flow<Long?>
 }
 
 data class TypeCount(val type: String, val cnt: Int)

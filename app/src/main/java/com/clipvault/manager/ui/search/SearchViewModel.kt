@@ -7,6 +7,7 @@ import com.clipvault.manager.domain.model.Clip
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -19,7 +20,8 @@ import javax.inject.Inject
 
 data class SearchUiState(
     val query: String = "",
-    val results: List<Clip> = emptyList()
+    val results: List<Clip> = emptyList(),
+    val justCopiedId: Long? = null
 )
 
 @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
@@ -29,6 +31,7 @@ class SearchViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val query = MutableStateFlow("")
+    private val copiedId = MutableStateFlow<Long?>(null)
 
     private val searchResults = query
         .debounce(150)
@@ -37,11 +40,17 @@ class SearchViewModel @Inject constructor(
             else repository.searchFts(q)
         }
 
-    val state: StateFlow<SearchUiState> = combine(query, searchResults) { q, results ->
-        SearchUiState(query = q, results = results)
+    val state: StateFlow<SearchUiState> = combine(query, searchResults, copiedId) { q, results, copied ->
+        SearchUiState(query = q, results = results, justCopiedId = copied)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SearchUiState())
 
     fun setQuery(q: String) { query.value = q }
+
+    fun flashCopied(id: Long) = viewModelScope.launch {
+        copiedId.value = id
+        delay(1_500)
+        if (copiedId.value == id) copiedId.value = null
+    }
 
     fun recordUsage(clipId: Long) = viewModelScope.launch {
         repository.incrementUseCount(clipId)

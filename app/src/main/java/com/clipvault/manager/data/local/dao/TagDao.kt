@@ -34,6 +34,9 @@ interface TagDao {
     @Query("DELETE FROM tags WHERE id = :id")
     suspend fun deleteById(id: Long)
 
+    @Query("DELETE FROM clip_tags WHERE tagId = :tagId")
+    suspend fun deleteCrossRefsForTag(tagId: Long)
+
     @Query("SELECT * FROM clip_tags WHERE clipId = :clipId")
     suspend fun getCrossRefsForClip(clipId: Long): List<ClipTagCrossRef>
 

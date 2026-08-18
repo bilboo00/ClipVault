@@ -42,7 +42,10 @@ class PasteQueueManager @Inject constructor(
     }
 
     fun bindClips(clips: List<ClipEntity>) {
-        _items.value = clips.filter { it.id in _clipIds.value }
+        // Match rows back to the persisted queue order — `clips` (DB IN-clause)
+        // order is arbitrary and would silently reorder the tray after restart.
+        val byId = clips.associateBy { it.id }
+        _items.value = _clipIds.value.mapNotNull { byId[it] }
     }
 
     suspend fun addToQueue(clip: ClipEntity) {

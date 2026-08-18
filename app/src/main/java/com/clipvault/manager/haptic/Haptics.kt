@@ -1,5 +1,6 @@
 package com.clipvault.manager.haptic
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.os.Build
 import android.os.VibrationEffect
@@ -28,20 +29,23 @@ class Haptics(context: Context) {
     }
 
     private val enabled: Boolean =
-        Settings.System.getInt(context.contentResolver, Settings.System.HAPTIC_FEEDBACK_ENABLED, 1) != 0
+        Settings.System.getInt(context.contentResolver, "haptic_feedback_enabled", 1) != 0
 
+    @SuppressLint("InlinedApi")
     /** Light tap — copy, FAB tap, chip select. */
     fun light() = vibrateCompat(
         predefined = VibrationEffect.EFFECT_CLICK,
         fallbackMs = 10L
     )
 
+    @SuppressLint("InlinedApi")
     /** Medium tap — pin toggle, save confirmation. */
     fun medium() = vibrateCompat(
         predefined = VibrationEffect.EFFECT_HEAVY_CLICK,
         fallbackMs = 25L
     )
 
+    @SuppressLint("InlinedApi")
     /** Strong, attention-grabbing — destructive action (delete). */
     fun heavy() = vibrateCompat(
         predefined = VibrationEffect.EFFECT_HEAVY_CLICK,
@@ -77,23 +81,13 @@ class Haptics(context: Context) {
     /** Long-press style — undo confirmation, accessibility toggle. */
     fun longPress() {
         if (!enabled || vibrator == null || !vibrator.hasVibrator()) return
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            vibrator.vibrate(VibrationEffect.createOneShot(40L, VibrationEffect.DEFAULT_AMPLITUDE))
-        } else {
-            @Suppress("DEPRECATION")
-            vibrator.vibrate(40L)
-        }
+        vibrator.vibrate(VibrationEffect.createOneShot(40L, VibrationEffect.DEFAULT_AMPLITUDE))
     }
 
     /** Use legacy HapticFeedbackConstants — for view-level events. */
     fun constant(type: Int) {
         if (!enabled || vibrator == null || !vibrator.hasVibrator()) return
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            vibrator.vibrate(VibrationEffect.createOneShot(20L, VibrationEffect.DEFAULT_AMPLITUDE))
-        } else {
-            @Suppress("DEPRECATION")
-            vibrator.vibrate(20L)
-        }
+        vibrator.vibrate(VibrationEffect.createOneShot(20L, VibrationEffect.DEFAULT_AMPLITUDE))
     }
 
     private fun vibrateCompat(
@@ -108,11 +102,6 @@ class Haptics(context: Context) {
                 return
             } catch (_: Exception) { /* fall through */ }
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            vibrator.vibrate(VibrationEffect.createOneShot(fallbackMs, fallbackAmplitude))
-        } else {
-            @Suppress("DEPRECATION")
-            vibrator.vibrate(fallbackMs)
-        }
+        vibrator.vibrate(VibrationEffect.createOneShot(fallbackMs, fallbackAmplitude))
     }
 }

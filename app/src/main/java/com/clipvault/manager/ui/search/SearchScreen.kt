@@ -1,14 +1,12 @@
 package com.clipvault.manager.ui.search
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -16,13 +14,17 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -38,14 +40,18 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -58,10 +64,13 @@ import com.clipvault.manager.domain.model.Clip
 import com.clipvault.manager.ui.components.AnimatedCopyButton
 import com.clipvault.manager.ui.components.TypeBadge
 import com.clipvault.manager.ui.theme.Motion
+import com.clipvault.manager.util.ClipUtils
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SearchScreen(
+    onOpenDetail: (Long) -> Unit = {},
     viewModel: SearchViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsState()
@@ -96,6 +105,7 @@ fun SearchScreen(
                     .padding(horizontal = 12.dp, vertical = 8.dp)
                     .focusRequester(focusRequester),
                 placeholder = { Text("Find in history") },
+                shape = RoundedCornerShape(28.dp),
                 leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
                 trailingIcon = {
                     AnimatedVisibility(
@@ -144,9 +154,15 @@ fun SearchScreen(
                         ResultRow(
                             clip = clip,
                             highlight = state.query,
+                            justCopied = state.justCopiedId == clip.id,
+                            onOpen = { onOpenDetail(clip.id) },
                             onCopy = {
-                                copy(context, clip.content)
-                                viewModel.recordUsage(clip.id)
+                                if (!clip.isLocked) {
+                                    haptics.light()
+                                    ClipUtils.copyToClipboard(context, clip.content, clip.imageUri)
+                                    viewModel.recordUsage(clip.id)
+                                    viewModel.flashCopied(clip.id)
+                                }
                             }
                         )
                     }
@@ -157,25 +173,63 @@ fun SearchScreen(
 }
 
 @Composable
-private fun ResultRow(clip: Clip, highlight: String, onCopy: () -> Unit) {
-    val haptics = rememberHaptics()
+private fun ResultRow(
+    clip: Clip,
+    highlight: String,
+    justCopied: Boolean,
+    onOpen: () -> Unit,
+    onCopy: () -> Unit
+) {
     val primaryColor = MaterialTheme.colorScheme.primary
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable {
-                haptics.light()
-                onCopy()
-            },
+            .clickable(onClick = onOpen),
         shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
-            Text(
-                text = highlightText(clip.content, highlight, primaryColor),
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 6
-            )
+            if (clip.isLocked) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Outlined.Lock,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = Clip.LOCKED_PLACEHOLDER,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            } else if (clip.type == com.clipvault.manager.data.local.entity.ClipType.IMAGE && clip.imageUri != null) {
+                val bmp by produceState<android.graphics.Bitmap?>(initialValue = null, clip.imageUri) {
+                    value = withContext(kotlinx.coroutines.Dispatchers.Default) {
+                        runCatching { decodeSampled(clip.imageUri!!, 800, 600) }.getOrNull()
+                    }
+                }
+                val bitmap = bmp
+                if (bitmap != null) {
+                    androidx.compose.foundation.Image(
+                        bitmap = bitmap.asImageBitmap(),
+                        contentDescription = "Image clip",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(96.dp)
+                            .clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp)),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                    )
+                }
+            } else {
+                Text(
+                    text = highlightText(clip.content, highlight, primaryColor),
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 6
+                )
+            }
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -183,17 +237,51 @@ private fun ResultRow(clip: Clip, highlight: String, onCopy: () -> Unit) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                TypeBadge(clip.type)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TypeBadge(clip.type)
+                    Text(
+                        text = formatTime(clip.createdAt),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 8.dp)
+                    )
+                }
                 AnimatedCopyButton(
-                    isCopied = false,
-                    onClick = {
-                        haptics.light()
-                        onCopy()
-                    }
+                    isCopied = justCopied,
+                    onClick = onCopy
                 )
             }
         }
     }
+}
+
+private fun formatTime(ts: Long): String {
+    val now = System.currentTimeMillis()
+    val diff = now - ts
+    return when {
+        diff < 60_000 -> "just now"
+        diff < 3_600_000 -> "${diff / 60_000}m ago"
+        diff < 86_400_000 -> "${diff / 3_600_000}h ago"
+        diff < 7 * 86_400_000 -> "${diff / 86_400_000}d ago"
+        else -> java.text.DateFormat.getDateInstance(java.text.DateFormat.SHORT)
+            .format(java.util.Date(ts))
+    }
+}
+
+private fun decodeSampled(path: String, reqWidth: Int, reqHeight: Int): android.graphics.Bitmap? {
+    val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    android.graphics.BitmapFactory.decodeFile(path, bounds)
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+    var sample = 1
+    while (bounds.outWidth / (sample * 2) >= reqWidth &&
+        bounds.outHeight / (sample * 2) >= reqHeight
+    ) {
+        sample *= 2
+    }
+    return android.graphics.BitmapFactory.decodeFile(
+        path,
+        android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
+    )
 }
 
 @Composable
@@ -247,9 +335,4 @@ private fun highlightText(text: String, query: String, highlightColor: Color): A
             index = found + q.length
         }
     }
-}
-
-private fun copy(context: Context, content: String) {
-    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-    cm.setPrimaryClip(ClipData.newPlainText("clip", content))
 }

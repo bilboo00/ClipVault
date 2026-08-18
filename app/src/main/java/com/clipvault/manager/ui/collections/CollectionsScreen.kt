@@ -17,14 +17,17 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.SnippetFolder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -51,19 +54,35 @@ import com.clipvault.manager.data.local.entity.CollectionEntity
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CollectionsScreen(
+    onBack: () -> Unit = {},
     viewModel: CollectionsViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsState()
     var showCreate by remember { mutableStateOf(false) }
+    var editingCollection by remember { mutableStateOf<CollectionEntity?>(null) }
     var deletingCollection by remember { mutableStateOf<CollectionEntity?>(null) }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Collections") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back")
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface
                 )
+            )
+        },
+        floatingActionButton = {
+            ExtendedFloatingActionButton(
+                onClick = { showCreate = true },
+                icon = { Icon(Icons.Outlined.Add, contentDescription = null) },
+                text = { Text("New collection") },
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
             )
         }
     ) { padding ->
@@ -81,6 +100,7 @@ fun CollectionsScreen(
                         CollectionCard(
                             collection = collection,
                             usageCount = state.usageCount[collection.id] ?: 0,
+                            onEdit = { editingCollection = collection },
                             onDelete = { deletingCollection = collection }
                         )
                     }
@@ -91,10 +111,22 @@ fun CollectionsScreen(
 
     if (showCreate) {
         CollectionEditorDialog(
+            initial = null,
             onDismiss = { showCreate = false },
             onSave = { name ->
                 viewModel.createCollection(name)
                 showCreate = false
+            }
+        )
+    }
+
+    editingCollection?.let { collection ->
+        CollectionEditorDialog(
+            initial = collection,
+            onDismiss = { editingCollection = null },
+            onSave = { name ->
+                viewModel.updateCollection(collection, name)
+                editingCollection = null
             }
         )
     }
@@ -121,6 +153,7 @@ fun CollectionsScreen(
 private fun CollectionCard(
     collection: CollectionEntity,
     usageCount: Int,
+    onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
     Card(
@@ -157,6 +190,9 @@ private fun CollectionCard(
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+            IconButton(onClick = onEdit) {
+                Icon(Icons.Outlined.Edit, contentDescription = "Edit")
             }
             IconButton(onClick = onDelete) {
                 Icon(Icons.Outlined.Delete, contentDescription = "Delete")
@@ -198,13 +234,14 @@ private fun EmptyHint(onCreateClick: () -> Unit) {
 
 @Composable
 private fun CollectionEditorDialog(
+    initial: CollectionEntity?,
     onDismiss: () -> Unit,
     onSave: (String) -> Unit
 ) {
-    var name by remember { mutableStateOf("") }
+    var name by remember { mutableStateOf(initial?.name.orEmpty()) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("New collection") },
+        title = { Text(if (initial == null) "New collection" else "Edit collection") },
         text = {
             OutlinedTextField(
                 value = name,
@@ -218,7 +255,7 @@ private fun CollectionEditorDialog(
             TextButton(
                 enabled = name.isNotBlank(),
                 onClick = { onSave(name.trim()) }
-            ) { Text("Create") }
+            ) { Text(if (initial == null) "Create" else "Save") }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("Cancel") }

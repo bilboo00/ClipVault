@@ -35,6 +35,9 @@ interface CollectionDao {
     @Query("DELETE FROM collections WHERE id = :id")
     suspend fun deleteById(id: Long)
 
+    @Query("DELETE FROM clip_collections WHERE collectionId = :collectionId")
+    suspend fun deleteCrossRefsForCollection(collectionId: Long)
+
     @Query("SELECT * FROM clip_collections WHERE clipId = :clipId")
     suspend fun getCrossRefsForClip(clipId: Long): List<ClipCollectionCrossRef>
 

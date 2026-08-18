@@ -23,7 +23,11 @@ class TagRepository @Inject constructor(
 
     suspend fun update(tag: TagEntity) = dao.update(tag)
 
-    suspend fun delete(id: Long) = dao.deleteById(id)
+    suspend fun delete(id: Long) {
+        // Remove the tag row and its cross-refs so usage counts stay honest.
+        dao.deleteById(id)
+        dao.deleteCrossRefsForTag(id)
+    }
 
     suspend fun setTagsForClip(clipId: Long, tagIds: List<Long>) =
         dao.setTagsForClip(clipId, tagIds)

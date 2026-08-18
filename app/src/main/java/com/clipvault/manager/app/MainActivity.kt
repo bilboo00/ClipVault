@@ -12,8 +12,11 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.LaunchedEffect
@@ -21,6 +24,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
@@ -53,6 +57,7 @@ import com.clipvault.manager.ui.snippets.SnippetsScreen
 import com.clipvault.manager.ui.stats.StatsScreen
 import com.clipvault.manager.ui.tags.TagsScreen
 import com.clipvault.manager.ui.theme.ClipboardManagerTheme
+import com.clipvault.manager.ui.theme.Motion
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -67,6 +72,13 @@ class MainActivity : AppCompatActivity() {
     /** Clip id extracted from a deep link; consumed by the NavHost. */
     private val deepLinkClipId = MutableStateFlow<Long?>(null)
 
+    /**
+     * True once a share (SEND / SEND_MULTIPLE) intent was imported. Survives
+     * config changes via [onSaveInstanceState] so a rotation or process-restore
+     * doesn't re-copy the shared image into storage again.
+     */
+    private var consumedShareIntent = false
+
     private val requestNotificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* user choice */ }
 
@@ -74,6 +86,7 @@ class MainActivity : AppCompatActivity() {
         installSplashScreen()
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        consumedShareIntent = savedInstanceState?.getBoolean(STATE_SHARE_CONSUMED, false) ?: false
         ensureNotificationPermission()
 
         setContent {
@@ -82,9 +95,15 @@ class MainActivity : AppCompatActivity() {
             val onboardingDone by settingsViewModel.onboardingDone.collectAsStateWithLifecycle(true)
             var showOnboarding by remember { mutableStateOf(!onboardingDone) }
 
-            // Biometric lock state
+            // Biometric lock state. rememberSaveable survives config changes so
+            // a successful unlock isn't thrown away by a rotation.
             val requireBiometric by settingsManager.requireBiometric.collectAsStateWithLifecycle(false)
-            var appLocked by remember(requireBiometric) { mutableStateOf(requireBiometric) }
+            var appLocked by rememberSaveable(requireBiometric) { mutableStateOf(requireBiometric) }
+            // If the device has no PIN/pattern/fingerprint at all, the prompt
+            // can never succeed — don't lock the user out of the app entirely.
+            val canAuthenticate = remember(requireBiometric) {
+                biometricManager.canAuthenticate(this@MainActivity)
+            }
 
             // When onboarding state changes, sync the shown screen
             LaunchedEffect(onboardingDone) {
@@ -92,10 +111,10 @@ class MainActivity : AppCompatActivity() {
             }
 
             ClipboardManagerTheme(themeOverride = settingsState.themeMode) {
-                if (appLocked && requireBiometric) {
+                if (appLocked && requireBiometric && canAuthenticate) {
                     LockScreen(
                         activity = this@MainActivity,
-                        canAuthenticate = biometricManager.canAuthenticate(this@MainActivity),
+                        canAuthenticate = canAuthenticate,
                         onAuthenticate = {
                             biometricManager.prompt(
                                 activity = this@MainActivity,
@@ -126,7 +145,10 @@ class MainActivity : AppCompatActivity() {
 
                     Scaffold(
                         bottomBar = {
-                            if (currentRoute != Route.Detail.path) {
+                            if (currentRoute != Route.Detail.path &&
+                                currentRoute != Route.Tags.path &&
+                                currentRoute != Route.Collections.path
+                            ) {
                                 ClipVaultBottomBar(
                                     currentRoute = currentRoute,
                                     onNavigate = { route ->
@@ -146,10 +168,26 @@ class MainActivity : AppCompatActivity() {
                             navController = nav,
                             startDestination = Route.Home.path,
                             modifier = androidx.compose.ui.Modifier.padding(padding),
-                            enterTransition = { EnterTransition.None },
-                            exitTransition = { ExitTransition.None },
-                            popEnterTransition = { EnterTransition.None },
-                            popExitTransition = { ExitTransition.None }
+                            enterTransition = {
+                                slideInHorizontally(
+                                    animationSpec = tween(Motion.Medium, easing = Motion.EmphasizedDecelerate)
+                                ) { it / 4 } + fadeIn(animationSpec = tween(Motion.Medium))
+                            },
+                            exitTransition = {
+                                slideOutHorizontally(
+                                    animationSpec = tween(Motion.Medium, easing = Motion.EmphasizedAccelerate)
+                                ) { -it / 5 } + fadeOut(animationSpec = tween(Motion.Medium))
+                            },
+                            popEnterTransition = {
+                                slideInHorizontally(
+                                    animationSpec = tween(Motion.Medium, easing = Motion.EmphasizedDecelerate)
+                                ) { -it / 4 } + fadeIn(animationSpec = tween(Motion.Medium))
+                            },
+                            popExitTransition = {
+                                slideOutHorizontally(
+                                    animationSpec = tween(Motion.Medium, easing = Motion.EmphasizedAccelerate)
+                                ) { it / 5 } + fadeOut(animationSpec = tween(Motion.Medium))
+                            }
                         ) {
                             composable(Route.Home.path) {
                                 HomeScreen(
@@ -159,7 +197,11 @@ class MainActivity : AppCompatActivity() {
                                 )
                             }
                             composable(Route.Search.path) {
-                                SearchScreen()
+                                SearchScreen(
+                                    onOpenDetail = { clipId ->
+                                        nav.navigate(Route.Detail.build(clipId))
+                                    }
+                                )
                             }
                             composable(Route.Settings.path) {
                                 SettingsScreen(
@@ -177,10 +219,10 @@ class MainActivity : AppCompatActivity() {
                                 StatsScreen()
                             }
                             composable(Route.Tags.path) {
-                                TagsScreen()
+                                TagsScreen(onBack = { nav.popBackStack() })
                             }
                             composable(Route.Collections.path) {
-                                CollectionsScreen()
+                                CollectionsScreen(onBack = { nav.popBackStack() })
                             }
                             composable(
                                 route = Route.Detail.path,
@@ -191,8 +233,7 @@ class MainActivity : AppCompatActivity() {
                                 val id = backStack.arguments?.getLong(Route.Detail.ARG) ?: 0L
                                 ClipDetailScreen(
                                     clipId = id,
-                                    onBack = { nav.popBackStack() },
-                                    onDeleted = { nav.popBackStack() }
+                                    onBack = { nav.popBackStack() }
                                 )
                             }
                         }
@@ -217,14 +258,30 @@ class MainActivity : AppCompatActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        // A brand-new intent must be processed; only the already-consumed one
+        // is suppressed on recreation.
+        consumedShareIntent = false
         handleIntent(intent)
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putBoolean(STATE_SHARE_CONSUMED, consumedShareIntent)
     }
 
     private fun handleIntent(intent: Intent?) {
         intent ?: return
         when (intent.action) {
-            Intent.ACTION_SEND -> handleSharedContent(intent)
-            Intent.ACTION_SEND_MULTIPLE -> handleSharedMultiple(intent)
+            Intent.ACTION_SEND -> {
+                if (consumedShareIntent) return
+                handleSharedContent(intent)
+                consumedShareIntent = true
+            }
+            Intent.ACTION_SEND_MULTIPLE -> {
+                if (consumedShareIntent) return
+                handleSharedMultiple(intent)
+                consumedShareIntent = true
+            }
             Intent.ACTION_VIEW -> handleDeepLink(intent.data)
         }
     }
@@ -316,5 +373,6 @@ class MainActivity : AppCompatActivity() {
     companion object {
         const val EXTRA_FROM_TILE = "from_tile"
         const val EXTRA_FROM_BUBBLE = "from_bubble"
+        private const val STATE_SHARE_CONSUMED = "share_consumed"
     }
 }

@@ -22,8 +22,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -36,7 +38,7 @@ import com.clipvault.manager.data.local.entity.TagEntity
  * Bottom sheet to assign tags and collections to a single clip.
  * Both lists are toggled immediately via their DAO crossref helpers.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun OrganizeSheet(
     tags: List<TagEntity>,
@@ -80,11 +82,17 @@ fun OrganizeSheet(
                     modifier = Modifier.padding(horizontal = 24.dp)
                 )
             } else {
-                Column(
+                androidx.compose.foundation.layout.FlowRow(
                     modifier = Modifier.padding(horizontal = 24.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     tags.forEach { tag ->
+                        val primary = MaterialTheme.colorScheme.primary
+                        val dotColor = remember(tag.color) {
+                            runCatching { Color(android.graphics.Color.parseColor(tag.color)) }
+                                .getOrDefault(primary)
+                        }
                         FilterChip(
                             selected = tag.id in selectedTagIds,
                             onClick = { onToggleTag(tag.id) },
@@ -94,11 +102,9 @@ fun OrganizeSheet(
                                     modifier = Modifier
                                         .size(12.dp)
                                         .clip(CircleShape)
-                                        .background(runCatching { Color(android.graphics.Color.parseColor(tag.color)) }
-                                            .getOrDefault(MaterialTheme.colorScheme.primary))
+                                        .background(dotColor)
                                 )
-                            },
-                            modifier = Modifier.fillMaxWidth()
+                            }
                         )
                     }
                 }
@@ -115,8 +121,9 @@ fun OrganizeSheet(
                     modifier = Modifier.padding(horizontal = 24.dp)
                 )
             } else {
-                Column(
+                androidx.compose.foundation.layout.FlowRow(
                     modifier = Modifier.padding(horizontal = 24.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     collections.forEach { collection ->
@@ -130,25 +137,30 @@ fun OrganizeSheet(
                                     contentDescription = null,
                                     modifier = Modifier.size(16.dp)
                                 )
-                            },
-                            modifier = Modifier.fillMaxWidth()
+                            }
                         )
                     }
                 }
             }
+
+            Spacer(Modifier.height(24.dp))
+
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier
+                    .align(Alignment.End)
+                    .padding(horizontal = 24.dp)
+            ) { Text("Done") }
         }
     }
 }
 
 @Composable
 private fun SectionLabel(text: String) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            text = text,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
-            modifier = Modifier.padding(start = 24.dp, bottom = 8.dp)
-        )
-        Spacer(Modifier.width(0.dp))
-    }
+    Text(
+        text = text,
+        style = MaterialTheme.typography.titleMedium,
+        fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+        modifier = Modifier.padding(start = 24.dp, bottom = 8.dp)
+    )
 }

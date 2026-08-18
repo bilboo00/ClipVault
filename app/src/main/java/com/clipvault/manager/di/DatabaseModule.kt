@@ -23,13 +23,7 @@ object DatabaseModule {
     @Singleton
     fun provideDatabase(@ApplicationContext ctx: Context): ClipDatabase =
         Room.databaseBuilder(ctx, ClipDatabase::class.java, "clipboard.db")
-            .addMigrations(
-                ClipDatabase.MIGRATION_1_2,
-                ClipDatabase.MIGRATION_2_3,
-                ClipDatabase.MIGRATION_3_4,
-                ClipDatabase.MIGRATION_4_5,
-                ClipDatabase.MIGRATION_5_6
-            )
+            .addMigrations(*ClipDatabase.MIGRATIONS)
             .fallbackToDestructiveMigration()
             .build()
 

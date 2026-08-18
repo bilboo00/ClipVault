@@ -174,5 +174,19 @@ abstract class ClipDatabase : RoomDatabase() {
                 )
             }
         }
+
+        /**
+         * Every migration, in order. Both the app database builder
+         * ([com.clipvault.manager.di.DatabaseModule]) and the widget's own
+         * builder must stay on this list, otherwise widget launches crash on
+         * schema changes.
+         */
+        val MIGRATIONS: Array<Migration> = arrayOf(
+            MIGRATION_1_2,
+            MIGRATION_2_3,
+            MIGRATION_3_4,
+            MIGRATION_4_5,
+            MIGRATION_5_6
+        )
     }
 }

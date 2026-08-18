@@ -25,11 +25,11 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 
-private val BrandStart = Color(0xFF7C6FF7)
-private val BrandMid = Color(0xFF6366F1)
-private val BrandEnd = Color(0xFFEC4899)
-private val BrandDeep = Color(0xFF312E81)
-private val AmoledGlow = Color(0xFF4338CA)
+import com.clipvault.manager.ui.theme.BrandAmoledGlow
+import com.clipvault.manager.ui.theme.BrandDeep
+import com.clipvault.manager.ui.theme.BrandIndigo
+import com.clipvault.manager.ui.theme.BrandPink
+import com.clipvault.manager.ui.theme.BrandViolet
 
 /**
  * Full-screen animated brand gradient that sits behind every screen.
@@ -110,7 +110,7 @@ private fun DrawScope.drawBrandBackground(t: Float, isDark: Boolean, isAmoled: B
     drawCircleGlow(
         center = c1,
         radius = r1,
-        coreColor = BrandStart,
+        coreColor = BrandViolet,
         edgeColor = BrandDeep,
         alpha = blobAlpha,
         blendMode = blobBlend
@@ -122,8 +122,8 @@ private fun DrawScope.drawBrandBackground(t: Float, isDark: Boolean, isAmoled: B
     drawCircleGlow(
         center = c2,
         radius = r2,
-        coreColor = BrandEnd,
-        edgeColor = BrandMid,
+        coreColor = BrandPink,
+        edgeColor = BrandIndigo,
         alpha = blobAlpha,
         blendMode = blobBlend
     )
@@ -134,7 +134,7 @@ private fun DrawScope.drawBrandBackground(t: Float, isDark: Boolean, isAmoled: B
         drawCircleGlow(
             center = c3,
             radius = w * 0.65f,
-            coreColor = AmoledGlow,
+            coreColor = BrandAmoledGlow,
             edgeColor = Color.Transparent,
             alpha = 0.25f,
             blendMode = BlendMode.Screen

@@ -40,3 +40,11 @@ val AmoledBackground = Color(0xFF000000)
 
 val ErrorColor = Color(0xFFE53935)
 val OnError = Color(0xFFFFFFFF)
+
+// Shared brand palette — used by AnimatedAppBackground, the empty-state orb,
+// and anywhere the brand gradient appears (single source of truth).
+val BrandViolet = Color(0xFF7C6FF7)
+val BrandIndigo = Color(0xFF6366F1)
+val BrandPink = Color(0xFFEC4899)
+val BrandDeep = Color(0xFF312E81)
+val BrandAmoledGlow = Color(0xFF4338CA)

@@ -18,14 +18,16 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.Label
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Sell
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -38,6 +40,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -53,6 +56,7 @@ import com.clipvault.manager.data.local.entity.TagEntity
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TagsScreen(
+    onBack: () -> Unit = {},
     viewModel: TagsViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsState()
@@ -64,9 +68,23 @@ fun TagsScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Tags") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back")
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface
                 )
+            )
+        },
+        floatingActionButton = {
+            ExtendedFloatingActionButton(
+                onClick = { showCreate = true },
+                icon = { Icon(Icons.Outlined.Add, contentDescription = null) },
+                text = { Text("New tag") },
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
             )
         }
     ) { padding ->
@@ -172,7 +190,7 @@ private fun TagCard(
                 )
             }
             IconButton(onClick = onEdit) {
-                Icon(Icons.Outlined.Label, contentDescription = "Edit")
+                Icon(Icons.Outlined.Edit, contentDescription = "Edit")
             }
             IconButton(onClick = onDelete) {
                 Icon(Icons.Outlined.Delete, contentDescription = "Delete")
@@ -223,7 +241,7 @@ private fun TagEditorDialog(
 ) {
     var name by remember { mutableStateOf(initial?.name.orEmpty()) }
     var colorIndex by remember {
-        mutableStateOf(
+        mutableIntStateOf(
             TAG_COLORS.indexOfFirst { it == initial?.color }.takeIf { it >= 0 } ?: 0
         )
     }

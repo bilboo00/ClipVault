@@ -1,16 +1,6 @@
 package com.clipvault.manager.ui.detail
 
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
-import android.content.Intent
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -37,7 +27,7 @@ import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.LockOpen
-import androidx.compose.material.icons.outlined.NoteAdd
+import androidx.compose.material.icons.automirrored.outlined.NoteAdd
 import androidx.compose.material.icons.outlined.Queue
 import androidx.compose.material.icons.outlined.Sell
 import androidx.compose.material.icons.outlined.Transform
@@ -46,6 +36,7 @@ import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -65,6 +56,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -75,14 +67,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import com.clipvault.manager.domain.TextTransformer
 import com.clipvault.manager.domain.TransformationResult
 import com.clipvault.manager.haptic.rememberHaptics
 import com.clipvault.manager.ui.components.AnimatedCopyButton
 import com.clipvault.manager.ui.components.OrganizeSheet
+import com.clipvault.manager.ui.components.StackedSnackbarHost
 import com.clipvault.manager.ui.components.TypeBadge
-import com.clipvault.manager.ui.theme.Motion
+import com.clipvault.manager.ui.components.rememberStackedSnackbarHostState
+import com.clipvault.manager.util.ClipUtils
 import java.text.DateFormat
 import java.util.Date
 
@@ -91,22 +88,50 @@ import java.util.Date
 fun ClipDetailScreen(
     clipId: Long,
     onBack: () -> Unit,
-    onDeleted: () -> Unit,
     viewModel: ClipDetailViewModel = hiltViewModel()
 ) {
     LaunchedEffect(clipId) { viewModel.load(clipId) }
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val haptics = rememberHaptics()
+    val snackbarHostState = rememberStackedSnackbarHostState()
     var copied by remember { mutableStateOf(false) }
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
     var showNotesEditor by remember { mutableStateOf(false) }
     var showTransformSheet by remember { mutableStateOf(false) }
     var showOrganizeSheet by remember { mutableStateOf(false) }
     var showExpirationDialog by remember { mutableStateOf(false) }
     var showUseLimitDialog by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+
+    // Keep the expiry countdown fresh while the screen is visible (and the app
+    // is foregrounded — the ticker must not run while backgrounded).
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                kotlinx.coroutines.delay(30_000)
+                now = System.currentTimeMillis()
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        viewModel.events.collect { event ->
+            when (event) {
+                is ClipDetailEvent.Deleted -> {
+                    snackbarHostState.show(
+                        message = "Clip deleted",
+                        actionLabel = "Undo"
+                    )?.let { viewModel.undoDelete(event.entity) }
+                }
+            }
+        }
+    }
 
     Scaffold(
+        snackbarHost = { StackedSnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { },
@@ -156,7 +181,28 @@ fun ClipDetailScreen(
         val clip = state.clip
         if (clip == null) {
             Box(Modifier.fillMaxSize().padding(padding), Alignment.Center) {
-                Text("Loading…")
+                if (state.loading) {
+                    Text("Loading…")
+                } else {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            Icons.Outlined.Delete,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Text("Clip deleted", style = MaterialTheme.typography.titleMedium)
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "It no longer exists in your history.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.height(16.dp))
+                        TextButton(onClick = onBack) { Text("Go back") }
+                    }
+                }
             }
             return@Scaffold
         }
@@ -184,49 +230,42 @@ fun ClipDetailScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp, vertical = 8.dp)
         ) {
-            AnimatedVisibility(
-                visible = true,
-                enter = fadeIn(animationSpec = tween(Motion.Long)) +
-                    expandVertically(animationSpec = tween(Motion.Long)),
-                exit = fadeOut() + shrinkVertically()
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (clip.isPinned)
+                        MaterialTheme.colorScheme.primaryContainer
+                    else MaterialTheme.colorScheme.surfaceVariant
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
             ) {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (clip.isPinned)
-                            MaterialTheme.colorScheme.primaryContainer
-                        else MaterialTheme.colorScheme.surfaceVariant
-                    ),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-                ) {
-                    Column(modifier = Modifier.padding(20.dp)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            TypeBadge(clip.type)
-                            Text(
-                                text = formatDate(clip.createdAt),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            if (clip.isLocked) {
-                                Icon(
-                                    Icons.Filled.Lock,
-                                    contentDescription = "Locked",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
-                        }
-                        Spacer(Modifier.height(16.dp))
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        TypeBadge(clip.type)
                         Text(
-                            text = clip.content,
-                            style = MaterialTheme.typography.bodyLarge,
-                            modifier = Modifier.fillMaxWidth()
+                            text = formatDate(clip.createdAt),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        if (clip.isLocked) {
+                            Icon(
+                                Icons.Filled.Lock,
+                                contentDescription = "Locked",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
                     }
+                    Spacer(Modifier.height(16.dp))
+                    Text(
+                        text = clip.content,
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
             }
 
@@ -242,7 +281,7 @@ fun ClipDetailScreen(
                     highlight = copied,
                     onClick = {
                         haptics.light()
-                        copyToClipboard(context, clip.content)
+                        ClipUtils.copyToClipboard(context, clip.content, clip.imageUri)
                         viewModel.recordUsage()
                         copied = true
                     },
@@ -263,6 +302,15 @@ fun ClipDetailScreen(
                     onClick = {
                         haptics.medium()
                         viewModel.addToQueue()
+                    },
+                    modifier = Modifier.weight(1f)
+                )
+                DetailAction(
+                    label = "Share",
+                    icon = Icons.Outlined.Share,
+                    onClick = {
+                        haptics.light()
+                        ClipUtils.shareClip(context, clip.content, clip.imageUri)
                     },
                     modifier = Modifier.weight(1f)
                 )
@@ -293,21 +341,12 @@ fun ClipDetailScreen(
                     modifier = Modifier.weight(1f)
                 )
                 DetailAction(
-                    label = "Share",
-                    icon = Icons.Outlined.Share,
-                    onClick = {
-                        haptics.light()
-                        shareIntent(context, clip.content)
-                    },
-                    modifier = Modifier.weight(1f)
-                )
-                DetailAction(
                     label = "Delete",
                     icon = Icons.Outlined.Delete,
                     destructive = true,
                     onClick = {
                         haptics.heavy()
-                        viewModel.delete(clip) { onDeleted() }
+                        showDeleteConfirm = true
                     },
                     modifier = Modifier.weight(1f)
                 )
@@ -325,7 +364,10 @@ fun ClipDetailScreen(
             Spacer(Modifier.height(20.dp))
 
             DetailMetaRow(label = "Characters", value = "${clip.content.length}")
-            DetailMetaRow(label = "Words", value = "${clip.content.split("\\s+".toRegex()).size}")
+            DetailMetaRow(
+                label = "Words",
+                value = "${clip.content.trim().split(Regex("\\s+")).count { it.isNotEmpty() }}"
+            )
             if (clip.sourceLabel != null) {
                 DetailMetaRow(label = "Source", value = clip.sourceLabel)
             }
@@ -339,7 +381,7 @@ fun ClipDetailScreen(
 
             TempClipRow(
                 label = "Expires",
-                value = clip.expiresAt?.let { "in ${formatRemaining(it)}" } ?: "Never",
+                value = clip.expiresAt?.let { "in ${formatRemaining(it, now)}" } ?: "Never",
                 onPick = { showExpirationDialog = true }
             )
             Spacer(Modifier.height(8.dp))
@@ -382,6 +424,34 @@ fun ClipDetailScreen(
         }
     }
 
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("Delete clip?") },
+            text = {
+                Text(
+                    "This clip will be removed from your history. You can undo right after deleting.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteConfirm = false
+                        state.clip?.let { viewModel.delete(it) }
+                    },
+                    colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
+                ) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") }
+            }
+        )
+    }
+
     if (showTransformSheet) {
         TransformationBottomSheet(
             text = state.clip?.content.orEmpty(),
@@ -391,8 +461,8 @@ fun ClipDetailScreen(
                 showTransformSheet = false
             },
             onCopyToClipboard = { newText ->
-                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                cm.setPrimaryClip(ClipData.newPlainText("clip", newText))
+                ClipUtils.copyToClipboard(context, newText)
+                viewModel.recordUsage()
                 showTransformSheet = false
             }
         )
@@ -450,20 +520,20 @@ private fun promptUnlock(
     clip: com.clipvault.manager.domain.model.Clip
 ) {
     if (activity == null) {
-        // Non-Activity context (e.g. preview): unlock without prompt
-        viewModel.unlock(clip) {}
+        // No activity to host a biometric prompt — never silently unlock,
+        // otherwise a locked clip could be exposed via a non-Activity context.
         return
     }
     if (!viewModel.biometricManager.canAuthenticate(activity)) {
-        // No biometrics available: still allow access (graceful fallback)
-        viewModel.unlock(clip) {}
+        // No biometrics available: still allow removing the lock (graceful fallback)
+        viewModel.toggleLock(clip)
         return
     }
     viewModel.biometricManager.prompt(
         activity = activity,
         title = "Unlock clip",
-        subtitle = "Authenticate to view this clip's content.",
-        onSuccess = { viewModel.unlock(clip) {} },
+        subtitle = "Authenticate to remove this clip's lock.",
+        onSuccess = { viewModel.toggleLock(clip) },
         onFailure = { /* keep locked */ }
     )
 }
@@ -493,7 +563,7 @@ private fun LockedScreen(
     ) {
         Icon(
             Icons.Filled.Lock,
-            contentDescription = null,
+            contentDescription = "Locked",
             tint = MaterialTheme.colorScheme.primary,
             modifier = Modifier.size(64.dp)
         )
@@ -510,9 +580,12 @@ private fun LockedScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(Modifier.height(24.dp))
-        TextButton(onClick = onUnlock) {
+        Button(
+            onClick = onUnlock,
+            modifier = Modifier.padding(horizontal = 8.dp)
+        ) {
             Icon(Icons.Outlined.LockOpen, contentDescription = null)
-            Spacer(Modifier.width(6.dp))
+            Spacer(Modifier.width(8.dp))
             Text("Unlock")
         }
     }
@@ -535,7 +608,7 @@ private fun NotesSection(
         Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    Icons.Outlined.NoteAdd,
+                    Icons.AutoMirrored.Outlined.NoteAdd,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary
                 )
@@ -569,7 +642,7 @@ private fun NotesSection(
             } else {
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "Add context or reminders. Markdown supported.",
+                    "Add context or reminders.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -601,7 +674,7 @@ private fun NotesEditorDialog(
         confirmButton = {
             TextButton(
                 onClick = { onSave(text) },
-                enabled = text != initialNotes || initialNotes.isNotEmpty()
+                enabled = text != initialNotes
             ) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
@@ -726,10 +799,10 @@ private fun TransformationBottomSheet(
 private fun DetailAction(
     label: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
-    highlight: Boolean = false,
-    destructive: Boolean = false,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    highlight: Boolean = false,
+    destructive: Boolean = false
 ) {
     val container = when {
         destructive -> MaterialTheme.colorScheme.errorContainer
@@ -827,16 +900,27 @@ private fun ExpirationPickerDialog(
                 Spacer(Modifier.height(12.dp))
                 options.forEach { (label, offset) ->
                     val expiresAt = offset?.let { now + it }
-                    val isCurrent = current != null && current == expiresAt
+                    val isCurrent = current != null && offset != null &&
+                        kotlin.math.abs((current - now) - offset) < 30_000
                     TextButton(
                         onClick = { onPick(expiresAt) },
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text(
-                            label + if (isCurrent) "  ✓" else "",
-                            modifier = Modifier.weight(1f),
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Start
-                        )
+                        Row(modifier = Modifier.weight(1f)) {
+                            Text(
+                                label,
+                                modifier = Modifier.weight(1f),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Start
+                            )
+                            if (isCurrent) {
+                                Icon(
+                                    Icons.Outlined.Check,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -876,11 +960,21 @@ private fun UseLimitPickerDialog(
                         onClick = { onPick(limit) },
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text(
-                            label + if (current != null && current == limit) "  ✓" else "",
-                            modifier = Modifier.weight(1f),
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Start
-                        )
+                        Row(modifier = Modifier.weight(1f)) {
+                            Text(
+                                label,
+                                modifier = Modifier.weight(1f),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Start
+                            )
+                            if (current != null && current == limit) {
+                                Icon(
+                                    Icons.Outlined.Check,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -890,8 +984,8 @@ private fun UseLimitPickerDialog(
     )
 }
 
-private fun formatRemaining(expiresAt: Long): String {
-    val diff = expiresAt - System.currentTimeMillis()
+private fun formatRemaining(expiresAt: Long, now: Long): String {
+    val diff = expiresAt - now
     if (diff <= 0) return "now"
     val minutes = diff / 60_000
     return when {
@@ -903,18 +997,3 @@ private fun formatRemaining(expiresAt: Long): String {
 
 private fun formatDate(ts: Long): String =
     DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(ts))
-
-private fun copyToClipboard(context: Context, content: String) {
-    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-    cm.setPrimaryClip(ClipData.newPlainText("clip", content))
-}
-
-private fun shareIntent(context: Context, content: String) {
-    val intent = Intent(Intent.ACTION_SEND).apply {
-        type = "text/plain"
-        putExtra(Intent.EXTRA_TEXT, content)
-    }
-    context.startActivity(Intent.createChooser(intent, null).apply {
-        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    })
-}

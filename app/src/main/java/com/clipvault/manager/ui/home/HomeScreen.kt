@@ -11,6 +11,10 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +23,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.height
@@ -57,10 +62,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -76,12 +83,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import com.clipvault.manager.haptic.rememberHaptics
 import com.clipvault.manager.sensor.ShakeDetector
 import com.clipvault.manager.data.local.entity.ClipType
 import com.clipvault.manager.domain.model.Clip
 import com.clipvault.manager.domain.model.ClipClassifier
+import com.clipvault.manager.util.ClipUtils
 import com.clipvault.manager.ui.components.AnimatedCopyButton
 import com.clipvault.manager.ui.components.CopyHeroOverlay
 import com.clipvault.manager.ui.components.EmptyStateWithOrb
@@ -101,6 +112,7 @@ import com.clipvault.manager.ui.components.rememberCopyHeroState
 import com.clipvault.manager.ui.components.rememberStackedSnackbarHostState
 import com.clipvault.manager.ui.theme.Motion
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.DateFormat
 import java.util.Date
 
@@ -116,8 +128,9 @@ fun HomeScreen(
     val haptics = rememberHaptics()
     val hero = rememberCopyHeroState()
     val listState = rememberLazyListState()
+    val topBarBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
     val scope = rememberCoroutineScope()
-    val urlTitles by viewModel.titleMap.collectAsStateWithLifecycle()
+    val urlTitles = viewModel.titleMap
     var showClearDialog by remember { mutableStateOf(false) }
     var showQueueSheet by remember { mutableStateOf(false) }
 
@@ -129,25 +142,33 @@ fun HomeScreen(
         reorderList.addAll(state.clips)
     }
 
-    // Shake-to-clear (#4)
-    LaunchedEffect(Unit) {
-        ShakeDetector.shakeFlow(context).collect {
-            haptics.heavy()
-            showClearDialog = true
+    // Shake-to-clear (#4) — only listen while the app is foregrounded so the
+    // accelerometer doesn't keep firing in the background.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            ShakeDetector.shakeFlow(context).collect {
+                haptics.heavy()
+                showClearDialog = true
+            }
         }
     }
 
     // Hoisted callbacks (stable identities)
     val onCopy: (Clip, () -> Offset?) -> Unit = { clip, getPosition ->
-        haptics.light()
-        copyToClipboard(context, clip.content)
-        viewModel.flashCopied(clip.id)
-        viewModel.recordUsage(clip.id)
-        val pos = getPosition()
-        if (pos != null) {
-            val w = context.resources.displayMetrics.widthPixels.toFloat()
-            val h = context.resources.displayMetrics.heightPixels.toFloat()
-            hero.launch(pos, Offset(w - 160f, h - 280f))
+        if (!clip.isLocked) {
+            haptics.light()
+            ClipUtils.copyToClipboard(context, clip.content, clip.imageUri)
+            viewModel.flashCopied(clip.id)
+            viewModel.recordUsage(clip.id)
+            val pos = getPosition()
+            if (pos != null) {
+                val w = context.resources.displayMetrics.widthPixels.toFloat()
+                val h = context.resources.displayMetrics.heightPixels.toFloat()
+                hero.launch(pos, Offset(w - 160f, h - 280f))
+            }
+        } else {
+            scope.launch { snackbarHostState.show("Locked clip — unlock it to copy") }
         }
     }
     val onPin: (Clip) -> Unit = { clip -> haptics.medium(); viewModel.togglePin(clip) }
@@ -221,6 +242,7 @@ fun HomeScreen(
                     MultiSelectTopBar(
                         selectedCount = state.selectedIds.size,
                         totalCount = state.clips.size,
+                        scrollBehavior = topBarBehavior,
                         onSelectAll = {
                             haptics.light()
                             if (state.selectedIds.size == state.clips.size) viewModel.clearSelection()
@@ -236,6 +258,7 @@ fun HomeScreen(
                         count = state.clips.size,
                         monitoringActive = state.monitoringActive,
                         queueSize = state.queueItems.size,
+                        scrollBehavior = topBarBehavior,
                         onToggleMonitoring = viewModel::toggleMonitoring,
                         onOpenQueue = { showQueueSheet = true }
                     )
@@ -243,7 +266,13 @@ fun HomeScreen(
             }
         },
         floatingActionButton = {
-            if (!state.multiSelectMode) {
+            // Slide/scale in and out instead of popping when entering or
+            // leaving multi-select mode.
+            AnimatedVisibility(
+                visible = !state.multiSelectMode,
+                enter = fadeIn() + scaleIn(initialScale = 0.9f),
+                exit = fadeOut() + scaleOut(targetScale = 0.9f)
+            ) {
                 SaveFab(
                     isPulsing = state.savingNow,
                     onClick = {
@@ -298,7 +327,9 @@ fun HomeScreen(
             } else {
                 LazyColumn(
                     state = listState,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .nestedScroll(topBarBehavior.nestedScrollConnection),
                     contentPadding = PaddingValues(
                         start = 12.dp, end = 12.dp, top = 8.dp,
                         bottom = if (state.multiSelectMode) 8.dp else 96.dp
@@ -313,10 +344,18 @@ fun HomeScreen(
                        items(clips, key = { it.id }, contentType = { "clip" }) { clip ->
                           // Trigger background fetch for URL clips so the preview
                           // title shows up once the network request completes.
-                          if (clip.type == ClipType.URL) {
-                              LaunchedEffect(clip.id) { viewModel.fetchUrlTitle(clip.content) }
+                          if (clip.type == ClipType.URL && !clip.isLocked) {
+                              LaunchedEffect(clip.id) { viewModel.fetchUrlTitle(clip.id, clip.content) }
                           }
                           val isSelected = clip.id in state.selectedIds
+                         Box(
+                             Modifier.animateItemPlacement(
+                                 spring(
+                                     dampingRatio = androidx.compose.animation.core.Spring.DampingRatioNoBouncy,
+                                     stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
+                                 )
+                             )
+                         ) {
                          when {
                              state.multiSelectMode -> {
                                  MultiSelectClipRow(
@@ -347,12 +386,13 @@ fun HomeScreen(
                                onReorderPinned = { newOrder ->
                                    scope.launch { viewModel.persistPinnedOrder(newOrder) }
                                },
-                               urlTitle = urlTitles[clip.content]
+                               urlTitle = urlTitles[clip.id]
                            )
                              }
-                          }
-                      }
-                 }
+                         }
+                       }
+                       }
+                  }
              }
          }
             // Hero copy animation overlay
@@ -388,15 +428,23 @@ fun HomeScreen(
             currentIndex = state.queueIndex,
             onCopy = { item ->
                 haptics.light()
-                copyToClipboard(context, item.content)
-                viewModel.recordUsage(item.id)
+                if (!item.isLocked) {
+                    ClipUtils.copyToClipboard(context, item.content, item.imageUri)
+                    viewModel.recordUsage(item.id)
+                } else {
+                    scope.launch { snackbarHostState.show("Locked clip — unlock it to copy") }
+                }
             },
             onCopyNext = {
                 val item = state.queueItems.getOrNull(state.queueIndex)
                 if (item != null) {
                     haptics.light()
-                    copyToClipboard(context, item.content)
-                    viewModel.recordUsage(item.id)
+                    if (!item.isLocked) {
+                        ClipUtils.copyToClipboard(context, item.content, item.imageUri)
+                        viewModel.recordUsage(item.id)
+                    } else {
+                        scope.launch { snackbarHostState.show("Locked clip — unlock it to copy") }
+                    }
                 }
                 scope.launch { viewModel.advanceQueue() }
             },
@@ -492,10 +540,12 @@ private fun NormalTopBar(
     count: Int,
     monitoringActive: Boolean,
     queueSize: Int,
+    scrollBehavior: TopAppBarScrollBehavior,
     onToggleMonitoring: () -> Unit,
     onOpenQueue: () -> Unit
 ) {
     TopAppBar(
+        scrollBehavior = scrollBehavior,
         title = {
             Column {
                 Text("Clipboard", style = MaterialTheme.typography.titleLarge)
@@ -523,7 +573,10 @@ private fun NormalTopBar(
                 )
             }
         },
-        colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = MaterialTheme.colorScheme.surface,
+            scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+        )
     )
 }
 
@@ -532,10 +585,12 @@ private fun NormalTopBar(
 private fun MultiSelectTopBar(
     selectedCount: Int,
     totalCount: Int,
+    scrollBehavior: TopAppBarScrollBehavior,
     onSelectAll: () -> Unit,
     onClose: () -> Unit
 ) {
     TopAppBar(
+        scrollBehavior = scrollBehavior,
         navigationIcon = {
             IconButton(onClick = onClose) {
                 Icon(Icons.Outlined.Close, contentDescription = "Exit selection")
@@ -547,7 +602,10 @@ private fun MultiSelectTopBar(
                 Text(if (selectedCount == totalCount) "Clear" else "All", style = MaterialTheme.typography.titleMedium)
             }
         },
-        colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+        )
     )
 }
 
@@ -573,27 +631,31 @@ private fun NormalClipCard(
             containerColor = if (clip.isPinned) MaterialTheme.colorScheme.primaryContainer
             else MaterialTheme.colorScheme.surfaceVariant
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (clip.isPinned) 2.dp else 0.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = if (clip.isPinned) 3.dp else 1.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            if (clip.type == ClipType.IMAGE && clip.imageUri != null) {
-                val bitmap = remember(clip.imageUri) {
-                    try {
-                        android.graphics.BitmapFactory.decodeFile(clip.imageUri)
-                            ?.let { android.graphics.Bitmap.createScaledBitmap(it, 400, 300, true) }
-                    } catch (_: Exception) { null }
+        Column(modifier = Modifier.padding(10.dp)) {
+            if (clip.type == ClipType.IMAGE && clip.imageUri != null && !clip.isLocked) {
+                val bitmap by produceState<android.graphics.Bitmap?>(initialValue = null, clip.imageUri) {
+                    value = withContext(kotlinx.coroutines.Dispatchers.Default) {
+                        runCatching {
+                            decodeSampled(clip.imageUri!!, 800, 600)
+                                ?.let { android.graphics.Bitmap.createScaledBitmap(it, 400, 300, true) }
+                        }.getOrNull()
+                    }
                 }
-                if (bitmap != null) {
+                val bmp = bitmap
+                if (bmp != null) {
                     androidx.compose.foundation.Image(
-                        bitmap = bitmap.asImageBitmap(),
+                        bitmap = bmp.asImageBitmap(),
                         contentDescription = "Image clip",
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(150.dp)
+                            .height(112.dp)
                             .clip(RoundedCornerShape(12.dp)),
                         contentScale = androidx.compose.ui.layout.ContentScale.Crop
                     )
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(6.dp))
                 }
             } else {
                 Row(verticalAlignment = Alignment.Top) {
@@ -601,27 +663,35 @@ private fun NormalClipCard(
                         text = clip.preview,
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.weight(1f),
-                        maxLines = 4
+                        maxLines = 2
                     )
                 }
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(2.dp))
             }
             Row(verticalAlignment = Alignment.Top) {
                 androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
-                IconButton(onClick = onFavorite) {
+                IconButton(
+                    onClick = onFavorite,
+                    modifier = Modifier.size(32.dp)
+                ) {
                     Icon(
                         imageVector = if (clip.isFavorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
                         contentDescription = "Favorite",
                         tint = if (clip.isFavorite) MaterialTheme.colorScheme.error
-                        else MaterialTheme.colorScheme.onSurfaceVariant
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
                     )
                 }
-                IconButton(onClick = onPin) {
+                IconButton(
+                    onClick = onPin,
+                    modifier = Modifier.size(32.dp)
+                ) {
                     Icon(
                         imageVector = if (clip.isPinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
                         contentDescription = "Pin",
                         tint = if (clip.isPinned) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
                     )
                 }
             }
@@ -656,21 +726,29 @@ private fun NormalClipCard(
                     }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onDelete) {
-                        Icon(Icons.Outlined.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    IconButton(
+                        onClick = onDelete,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            Icons.Outlined.Delete,
+                            contentDescription = "Delete",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp)
+                        )
                     }
                     AnimatedCopyButton(isCopied = justCopied, onClick = onCopy)
                 }
             }
             // Inline preview (#6)
-            val showPreview = clip.type in setOf(
+            val showPreview = !clip.isLocked && clip.type in setOf(
                 ClipType.COLOR_HEX, ClipType.PHONE, ClipType.EMAIL, ClipType.URL
             )
             if (showPreview) {
                 InlinePreview(clip.type, clip.content)
             }
             // URL preview title (fetched in background)
-            if (clip.type == ClipType.URL && !urlTitle.isNullOrBlank()) {
+            if (clip.type == ClipType.URL && !clip.isLocked && !urlTitle.isNullOrBlank()) {
                 Text(
                     text = urlTitle,
                     style = MaterialTheme.typography.bodySmall,
@@ -680,7 +758,7 @@ private fun NormalClipCard(
                 )
             }
             // One-time codes get a prominent copy button
-            if (clip.type == ClipType.OTP) {
+            if (clip.type == ClipType.OTP && !clip.isLocked) {
                 val code = ClipClassifier.extractOtp(clip.content)
                 if (code != null) {
                     Spacer(Modifier.height(10.dp))
@@ -706,9 +784,25 @@ private fun NormalClipCard(
     }
 }
 
-private fun copyToClipboard(context: Context, content: String) {
-    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-    cm.setPrimaryClip(ClipData.newPlainText("clip", content))
+/**
+ * Decodes an image at (roughly) [reqWidth]x[reqHeight] without ever holding a
+ * full-resolution bitmap in memory: bounds are read first and a power-of-two
+ * inSampleSize skips straight to a small decode.
+ */
+private fun decodeSampled(path: String, reqWidth: Int, reqHeight: Int): android.graphics.Bitmap? {
+    val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    android.graphics.BitmapFactory.decodeFile(path, bounds)
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+    var sample = 1
+    while (bounds.outWidth / (sample * 2) >= reqWidth &&
+        bounds.outHeight / (sample * 2) >= reqHeight
+    ) {
+        sample *= 2
+    }
+    return android.graphics.BitmapFactory.decodeFile(
+        path,
+        android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

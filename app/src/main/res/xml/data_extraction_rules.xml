@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <data-extraction-rules>
     <cloud-backup>
-        <include domain="database" path="clipboard.db" />
         <include domain="sharedpref" path="settings.xml" />
     </cloud-backup>
     <device-transfer>

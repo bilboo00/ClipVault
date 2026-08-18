@@ -18,7 +18,6 @@ import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
-import androidx.compose.material.icons.outlined.DeleteSweep
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -38,6 +37,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.clipvault.manager.data.local.entity.ClipEntity
+import com.clipvault.manager.domain.model.Clip
 
 /**
  * Paste-queue tray: shows queued clips, the "next to paste" item, and lets the
@@ -67,23 +67,16 @@ fun QueueSheet(
                 .padding(bottom = 24.dp)
         ) {
             Row(
-                modifier = Modifier.padding(start = 24.dp, end = 12.dp, top = 8.dp, bottom = 4.dp),
+                modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Paste queue", style = MaterialTheme.typography.titleLarge)
                     Text(
                         if (items.isEmpty()) "Queue is empty"
-                        else "Next to paste: #${currentIndex + 1} of ${items.size}",
+                        else "Next to paste: #${currentIndex.coerceIn(0, items.size - 1) + 1} of ${items.size}",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                IconButton(onClick = onClear) {
-                    Icon(
-                        Icons.Outlined.DeleteSweep,
-                        contentDescription = "Clear queue",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
@@ -127,7 +120,8 @@ fun QueueSheet(
                                         fontWeight = FontWeight.SemiBold
                                     )
                                     Text(
-                                        item.content.take(80),
+                                        if (item.isLocked) Clip.LOCKED_PLACEHOLDER
+                                        else item.content.take(80),
                                         style = MaterialTheme.typography.bodyMedium,
                                         maxLines = 2,
                                         overflow = TextOverflow.Ellipsis,
@@ -137,8 +131,7 @@ fun QueueSheet(
                                     )
                                 }
                                 IconButton(
-                                    onClick = { onCopy(item) },
-                                    enabled = !isNext
+                                    onClick = { onCopy(item) }
                                 ) {
                                     Icon(
                                         Icons.Outlined.ContentCopy,

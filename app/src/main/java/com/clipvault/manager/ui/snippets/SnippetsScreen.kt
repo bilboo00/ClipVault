@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -26,6 +27,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
@@ -38,6 +40,7 @@ import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -99,38 +102,62 @@ fun SnippetsScreen(
                     .fillMaxWidth()
                     .padding(horizontal = 12.dp, vertical = 8.dp),
                 placeholder = { Text("Search snippets") },
+                shape = RoundedCornerShape(28.dp),
                 leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
+                trailingIcon = {
+                    AnimatedVisibility(
+                        visible = state.query.isNotEmpty(),
+                        enter = fadeIn(),
+                        exit = fadeOut()
+                    ) {
+                        IconButton(onClick = { viewModel.setQuery("") }) {
+                            Icon(Icons.Outlined.Close, contentDescription = "Clear search")
+                        }
+                    }
+                },
                 singleLine = true
             )
-            if (state.snippets.isEmpty()) {
-                EmptyHint()
-            } else {
-                LazyColumn(
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(state.snippets, key = { it.id }) { snippet ->
-                        SnippetCard(
-                            snippet = snippet,
-                            onCopy = {
-                                haptics.success()
-                                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                val clipboard = try {
-                                    cm.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString()
-                                } catch (_: SecurityException) { null }
-                                val expanded = viewModel.expandForCopy(snippet.content, clipboard)
-                                cm.setPrimaryClip(ClipData.newPlainText("snippet", expanded))
-                                viewModel.recordUsage(snippet.id)
-                            },
-                            onEdit = {
-                                haptics.light()
-                                viewModel.openEditor(snippet)
-                            },
-                            onDelete = {
-                                haptics.medium()
-                                pendingDelete = snippet
-                            }
-                        )
+            when {
+                state.snippets.isEmpty() && state.query.isBlank() ->
+                    EmptyHint(
+                        icon = Icons.Outlined.ContentPaste,
+                        title = "No snippets yet",
+                        subtitle = "Save reusable text — emails, addresses, replies."
+                    )
+                state.snippets.isEmpty() ->
+                    EmptyHint(
+                        icon = Icons.Outlined.Search,
+                        title = "No matches",
+                        subtitle = "Nothing found for \"${state.query}\"."
+                    )
+                else -> {
+                    LazyColumn(
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(state.snippets, key = { it.id }) { snippet ->
+                            SnippetCard(
+                                snippet = snippet,
+                                onCopy = {
+                                    haptics.success()
+                                    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    val clipboard = try {
+                                        cm.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString()
+                                    } catch (_: SecurityException) { null }
+                                    val expanded = viewModel.expandForCopy(snippet.content, clipboard)
+                                    cm.setPrimaryClip(ClipData.newPlainText("snippet", expanded))
+                                    viewModel.recordUsage(snippet.id)
+                                },
+                                onEdit = {
+                                    haptics.light()
+                                    viewModel.openEditor(snippet)
+                                },
+                                onDelete = {
+                                    haptics.medium()
+                                    pendingDelete = snippet
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -176,7 +203,8 @@ private fun SnippetCard(
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant
         ),
-        elevation = CardDefaults.cardElevation(0.dp)
+        elevation = CardDefaults.cardElevation(1.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     ) {
         Column(
             modifier = Modifier
@@ -222,19 +250,15 @@ private fun SnippetCard(
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                ExtendedFloatingActionButton(
-                    onClick = onCopy,
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                    icon = {
-                        Icon(
-                            Icons.Outlined.ContentPaste,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    },
-                    text = { Text("Insert") }
-                )
+                OutlinedButton(onClick = onCopy) {
+                    Icon(
+                        Icons.Outlined.ContentPaste,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(Modifier.size(6.dp))
+                    Text("Insert")
+                }
             }
         }
     }
@@ -292,7 +316,11 @@ private fun SnippetEditorDialog(
 }
 
 @Composable
-private fun EmptyHint() {
+private fun EmptyHint(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    subtitle: String
+) {
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
@@ -302,19 +330,19 @@ private fun EmptyHint() {
             modifier = Modifier.padding(32.dp).alpha(0.8f)
         ) {
             Icon(
-                Icons.Outlined.ContentPaste,
+                icon,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(48.dp)
             )
             Spacer(Modifier.size(12.dp))
             Text(
-                text = "No snippets yet",
+                text = title,
                 style = MaterialTheme.typography.titleMedium
             )
             Spacer(Modifier.size(4.dp))
             Text(
-                text = "Save reusable text — emails, addresses, replies.",
+                text = subtitle,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

@@ -25,5 +25,4 @@
 
     <!-- Accessibility -->
     <string name="accessibility_service_description">Detects when you copy text in other apps and saves it to your clipboard history. No data leaves your device.</string>
-    <string name="accessibility_grant_failed">Could not open Accessibility settings.</string>
 </resources>

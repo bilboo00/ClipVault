@@ -19,7 +19,8 @@ data class Clip(
     val isLocked: Boolean = false
 ) {
     val preview: String
-        get() = if (content.length <= 120) content else content.take(120) + "…"
+        get() = if (isLocked) LOCKED_PLACEHOLDER
+        else if (content.length <= 120) content else content.take(120) + "…"
 
     val hasNotes: Boolean
         get() = !notes.isNullOrBlank()
@@ -31,6 +32,8 @@ data class Clip(
         get() = useLimit != null
 
     companion object {
+        const val LOCKED_PLACEHOLDER = "🔒 Locked"
+
         fun fromEntity(e: ClipEntity) = Clip(
             id = e.id,
             content = e.content,

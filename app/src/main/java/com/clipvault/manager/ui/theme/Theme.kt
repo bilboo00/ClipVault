@@ -10,6 +10,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
 import com.clipvault.manager.ui.components.AnimatedAppBackground
+import androidx.compose.ui.graphics.Color
 
 private val LightScheme = lightColorScheme(
     primary = IndigoPrimary,
@@ -18,10 +19,14 @@ private val LightScheme = lightColorScheme(
     onPrimaryContainer = IndigoOnPrimaryContainer,
     secondary = TealSecondary,
     onSecondary = TealOnSecondary,
+    background = Surface,
+    onBackground = OnSurface,
     surface = Surface,
     onSurface = OnSurface,
     surfaceVariant = SurfaceVariant,
     onSurfaceVariant = OnSurfaceVariant,
+    surfaceContainerLow = Color(0xFFF1F1F6),
+    surfaceContainerHigh = Color(0xFFE9E9F1),
     outline = Outline,
     error = ErrorColor,
     onError = OnError
@@ -34,10 +39,14 @@ private val DarkScheme = darkColorScheme(
     onPrimaryContainer = DarkOnPrimaryContainer,
     secondary = DarkSecondary,
     onSecondary = DarkOnSecondary,
+    background = DarkSurface,
+    onBackground = DarkOnSurface,
     surface = DarkSurface,
     onSurface = DarkOnSurface,
     surfaceVariant = DarkSurfaceVariant,
     onSurfaceVariant = DarkOnSurfaceVariant,
+    surfaceContainerLow = Color(0xFF1C1B23),
+    surfaceContainerHigh = Color(0xFF26252E),
     outline = DarkOutline,
     error = ErrorColor,
     onError = OnError
@@ -51,10 +60,13 @@ private val AmoledScheme = darkColorScheme(
     secondary = DarkSecondary,
     onSecondary = DarkOnSecondary,
     background = AmoledBackground,
+    onBackground = AmoledOnSurface,
     surface = AmoledSurface,
     onSurface = AmoledOnSurface,
     surfaceVariant = AmoledSurfaceVariant,
     onSurfaceVariant = AmoledOnSurfaceVariant,
+    surfaceContainerLow = Color(0xFF0A0A0D),
+    surfaceContainerHigh = Color(0xFF141418),
     outline = AmoledOutline,
     error = ErrorColor,
     onError = OnError

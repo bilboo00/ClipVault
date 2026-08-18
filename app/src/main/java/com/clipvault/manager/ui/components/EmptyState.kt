@@ -37,9 +37,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 
-private val OrbStartColor = Color(0xFF7C6FF7)
-private val OrbMidColor = Color(0xFF4F46E5)
-private val OrbEndColor = Color(0xFF312E81)
+import com.clipvault.manager.ui.theme.BrandDeep
+import com.clipvault.manager.ui.theme.BrandIndigo
+import com.clipvault.manager.ui.theme.BrandViolet
+
+private val OrbStartColor = BrandViolet
+private val OrbMidColor = BrandIndigo
+private val OrbEndColor = BrandDeep
 
 /**
  * Radial-gradient orb with a slow, shallow pulse.

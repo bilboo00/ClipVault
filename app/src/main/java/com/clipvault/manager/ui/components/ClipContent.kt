@@ -12,7 +12,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -45,6 +45,7 @@ fun ClipContent(
     onSave: (Long, String) -> Unit
 ) {
     var editedText by remember { mutableStateOf(clip.content) }
+    val dirty = editedText != clip.content
     val haptics = rememberHaptics()
     val scope = rememberCoroutineScope()
 
@@ -74,10 +75,11 @@ fun ClipContent(
                             scope.launch { haptics.light() }
                             onSave(clip.id, normalizeText(editedText))
                         },
+                        enabled = dirty,
                         modifier = Modifier.size(36.dp)
                     ) {
                         Icon(
-                            Icons.Filled.ContentCopy,
+                            Icons.Filled.Check,
                             contentDescription = "Save",
                             modifier = Modifier.size(18.dp)
                         )

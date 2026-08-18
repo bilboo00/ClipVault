@@ -69,10 +69,12 @@ class BubbleService : Service() {
             ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
         } else 0
 
-    @SuppressLint("ClickableViewAccessibility")
+    @SuppressLint("ClickableViewAccessibility", "InflateParams")
     private fun addBubbleSafely() {
         if (bubbleView != null) return
         try {
+            // null parent is intentional: the bubble is added directly to
+            // WindowManager, not attached to any view hierarchy.
             val view = LayoutInflater.from(this).inflate(R.layout.layout_bubble, null)
             windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
 
@@ -185,22 +187,20 @@ class BubbleService : Service() {
     }
 
     private fun createChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            try {
-                val nm = getSystemService(NotificationManager::class.java)
-                if (nm.getNotificationChannel(CHANNEL_ID) == null) {
-                    val channel = NotificationChannel(
-                        CHANNEL_ID,
-                        getString(R.string.channel_name),
-                        NotificationManager.IMPORTANCE_LOW
-                    ).apply {
-                        description = getString(R.string.bubble_channel_desc)
-                        setShowBadge(false)
-                    }
-                    nm.createNotificationChannel(channel)
+        try {
+            val nm = getSystemService(NotificationManager::class.java)
+            if (nm.getNotificationChannel(CHANNEL_ID) == null) {
+                val channel = NotificationChannel(
+                    CHANNEL_ID,
+                    getString(R.string.channel_name),
+                    NotificationManager.IMPORTANCE_LOW
+                ).apply {
+                    description = getString(R.string.bubble_channel_desc)
+                    setShowBadge(false)
                 }
-            } catch (_: Exception) { }
-        }
+                nm.createNotificationChannel(channel)
+            }
+        } catch (_: Exception) { }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -231,8 +231,7 @@ class BubbleService : Service() {
         fun start(ctx: Context) {
             try {
                 val i = Intent(ctx, BubbleService::class.java)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) ctx.startForegroundService(i)
-                else ctx.startService(i)
+                ctx.startForegroundService(i)
             } catch (_: Exception) {
                 // Bubble can fail to start (overlay perm revoked, etc.) —
                 // the toggle UI will be the source of truth

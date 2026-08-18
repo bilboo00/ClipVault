@@ -35,6 +35,10 @@ class CollectionsViewModel @Inject constructor(
         repository.create(name)
     }
 
+    fun updateCollection(collection: CollectionEntity, name: String) = viewModelScope.launch {
+        repository.update(collection.copy(name = name))
+    }
+
     fun deleteCollection(id: Long) = viewModelScope.launch {
         repository.delete(id)
     }

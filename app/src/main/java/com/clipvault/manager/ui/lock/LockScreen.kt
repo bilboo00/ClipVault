@@ -1,7 +1,6 @@
 package com.clipvault.manager.ui.lock
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,8 +10,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -22,7 +23,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.fragment.app.FragmentActivity
 
 @Composable
@@ -42,16 +42,25 @@ fun LockScreen(
             verticalArrangement = Arrangement.Center,
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { onAuthenticate() }
                 .padding(horizontal = 48.dp)
         ) {
-            Icon(
-                imageVector = Icons.Filled.Lock,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(64.dp)
-            )
-            Spacer(modifier = Modifier.height(24.dp))
+            Box(
+                modifier = Modifier
+                    .size(112.dp)
+                    .background(
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        shape = CircleShape
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Lock,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(48.dp)
+                )
+            }
+            Spacer(modifier = Modifier.height(28.dp))
             Text(
                 text = "Vault locked",
                 style = MaterialTheme.typography.headlineMedium,
@@ -60,11 +69,19 @@ fun LockScreen(
             )
             Spacer(modifier = Modifier.height(12.dp))
             Text(
-                text = if (canAuthenticate) "Tap anywhere to unlock" else "Biometrics not available",
+                text = if (canAuthenticate) "Unlock to view your saved clips" else "Biometrics not available",
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
                 textAlign = TextAlign.Center
             )
+            Spacer(modifier = Modifier.height(32.dp))
+            Button(
+                onClick = onAuthenticate,
+                enabled = canAuthenticate,
+                modifier = Modifier.fillMaxWidth(0.6f)
+            ) {
+                Text(if (canAuthenticate) "Unlock" else "Unavailable")
+            }
         }
     }
 }

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Only the images subdirectory is exposed, so a FileProvider URI can
+         never mint a path to arbitrary files under filesDir (e.g. the
+         clipboard database or settings DataStore files). -->
+    <files-path name="clip_images" path="images/" />
+</paths>

@@ -2,6 +2,7 @@ package com.clipvault.manager.ui.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.compose.runtime.mutableStateMapOf
 import com.clipvault.manager.data.local.entity.ClipEntity
 import com.clipvault.manager.data.local.entity.ClipType
 import com.clipvault.manager.data.preferences.SettingsManager
@@ -21,7 +22,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.flatMapLatest
@@ -91,13 +91,18 @@ class HomeViewModel @Inject constructor(
     val events: Flow<HomeEvent> = _events.receiveAsFlow()
 
     // ── URL preview titles ───────────────────────────────────────────
+    // SnapshotStateMap keyed by clip id: writes invalidate only the rows that
+    // read their own key, so a title arriving mid-scroll doesn't recompose the
+    // whole visible list (the old whole-map StateFlow replacement did).
     private val titleCache = ConcurrentHashMap<String, String?>()
-    private val _titleMap = MutableStateFlow<Map<String, String?>>(emptyMap())
-    val titleMap: StateFlow<Map<String, String?>> = _titleMap.asStateFlow()
+    val titleMap = mutableStateMapOf<Long, String?>()
 
     /** Fetch a URL's page title in the background (cached in-memory + DB). */
-    fun fetchUrlTitle(url: String) {
-        if (titleCache.containsKey(url)) return
+    fun fetchUrlTitle(clipId: Long, url: String) {
+        if (titleCache.containsKey(url)) {
+            titleMap[clipId] = titleCache[url]
+            return
+        }
         titleCache[url] = null
         viewModelScope.launch {
             val title = withContext(Dispatchers.IO) {
@@ -105,7 +110,7 @@ class HomeViewModel @Inject constructor(
                     ?: urlPreviewRepository.refresh(url)
             }
             titleCache[url] = title
-            _titleMap.value = titleCache.toMap()
+            titleMap[clipId] = title
         }
     }
 
@@ -256,10 +261,10 @@ class HomeViewModel @Inject constructor(
     fun bulkPin() = viewModelScope.launch {
         val ids = selectedIds.value.toList()
         if (ids.isEmpty()) return@launch
-        // Pin if any selected clip is currently unpinned; otherwise unpin all
-        val anyUnpinned = state.value.clips
-            .filter { it.id in selectedIds.value }
-            .any { !it.isPinned }
+        // Decide from the DB rows, not the filtered display list: selection
+        // survives filter/search changes, and a stale `state.clips` could flip
+        // the pin/unpin direction.
+        val anyUnpinned = repository.getByIds(ids).any { !it.isPinned }
         repository.bulkSetPinned(ids, anyUnpinned)
         _events.send(HomeEvent.BulkPinned(ids.size))
         exitMultiSelect()

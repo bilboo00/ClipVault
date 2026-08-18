@@ -6,9 +6,11 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarDuration
@@ -48,10 +50,16 @@ fun StackedSnackbarHost(
     modifier: Modifier = Modifier,
     maxStack: Int = 3
 ) {
-    Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.BottomCenter) {
+    // Column with bottom alignment stacks snackbars upward (newest at the
+    // bottom, directly above the screen edge) instead of overlapping.
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Bottom
+    ) {
         val items = hostState.items
         items.takeLast(maxStack).forEach { item ->
-            key(item.id) {
+            androidx.compose.runtime.key(item.id) {
                 AnimatedVisibility(
                     visible = true,
                     enter = slideInVertically(initialOffsetY = { it }) + fadeIn(animationSpec = tween(150)),
@@ -59,6 +67,7 @@ fun StackedSnackbarHost(
                 ) {
                     Snackbar(
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                        shape = RoundedCornerShape(14.dp),
                         action = item.actionLabel?.let { label ->
                             {
                                 TextButton(onClick = { item.onAction?.invoke() }) { Text(label) }
@@ -72,10 +81,6 @@ fun StackedSnackbarHost(
         }
     }
 }
-
-@Composable
-private fun key(key: String, content: @Composable () -> Unit) =
-    androidx.compose.runtime.key(key) { content() }
 
 /**
  * Data holder for stacked snackbars. Push messages via [show] and they
@@ -109,16 +114,23 @@ class StackedSnackbarHostState {
         )
         _items.value = _items.value + item
 
-        // Auto-dismiss after duration. If the action was clicked first, this
-        // is a no-op (deferred already completed) and dismiss(id) is idempotent.
-        launch {
-            delay(durationMs)
-            if (resultDeferred.complete(null)) {
-                dismiss(id)
+        try {
+            // Auto-dismiss after duration. If the action was clicked first, this
+            // is a no-op (deferred already completed) and dismiss(id) is idempotent.
+            launch {
+                delay(durationMs)
+                if (resultDeferred.complete(null)) {
+                    dismiss(id)
+                }
             }
-        }
 
-        resultDeferred.await()
+            resultDeferred.await()
+        } finally {
+            // Runs on normal completion (no-op, item already dismissed) AND on
+            // caller cancellation — without this the item would be leaked in
+            // _items forever when the showing coroutine is cancelled.
+            dismiss(id)
+        }
     }
 
     fun dismiss(id: String) {

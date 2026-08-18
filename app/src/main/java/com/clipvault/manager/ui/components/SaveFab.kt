@@ -22,10 +22,10 @@ import com.clipvault.manager.ui.theme.Motion
  */
 @Composable
 fun SaveFab(
-    label: String = "Save now",
-    isPulsing: Boolean = false,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    label: String = "Save now",
+    isPulsing: Boolean = false
 ) {
     val scale by animateFloatAsState(
         targetValue = if (isPulsing) 1.15f else 1f,

@@ -51,7 +51,7 @@ fun AnimatedCopyButton(
 
     Box(
         modifier = modifier
-            .size(40.dp)
+            .size(32.dp)
             .clip(CircleShape)
             .background(bg),
         contentAlignment = Alignment.Center
@@ -70,7 +70,7 @@ fun AnimatedCopyButton(
                     contentDescription = "Copied",
                     tint = tint,
                     modifier = Modifier
-                        .size(20.dp)
+                        .size(16.dp)
                         .scale(1.15f)
                 )
             } else {
@@ -78,7 +78,7 @@ fun AnimatedCopyButton(
                     imageVector = Icons.Outlined.ContentPaste,
                     contentDescription = "Copy",
                     tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(16.dp)
                 )
             }
         }
