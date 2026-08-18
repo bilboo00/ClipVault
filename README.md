@@ -88,6 +88,12 @@ cd ClipVault
 ./gradlew :app:bundleRelease
 ```
 
+> **Note:** `assembleRelease`/`bundleRelease` are only signed if `local.properties`
+> defines the keystore (`CLIPVAULT_STORE_FILE`, `CLIPVAULT_STORE_PASSWORD`,
+> `CLIPVAULT_KEY_ALIAS`, `CLIPVAULT_KEY_PASSWORD`). Without them, the build
+> produces an unsigned APK silently. The APKs attached to GitHub Releases are
+> signed with the project release key.
+
 ## Architecture
 
 | Layer       | Stack                                                   |
