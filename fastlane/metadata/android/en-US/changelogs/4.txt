@@ -1,0 +1,5 @@
+- Fix deleted clips reappearing in history
+- Debounced widget refresh keeps the UI responsive
+- Unlock action now permanently removes a clip's lock
+- Delete confirmation dialog on clip detail
+- Polish: tonal bottom-nav, animated FAB, card borders, adaptive settings badges, redesigned stats and lock screen

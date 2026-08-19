@@ -1,0 +1,37 @@
+ClipVault is a local-first clipboard manager for Android. Everything you copy is captured and stored in a private on-device SQLite database. No accounts, no cloud, no tracking — your data never leaves your phone.
+
+Capture & history
+• Automatic background capture via a lightweight monitoring service (plus an optional Accessibility service for Android 10+ background restrictions)
+• Full-text search across every clip you've ever copied, with highlighted matches
+• Pin important clips so they're never pruned
+• Smart content detection: URLs, email addresses, phone numbers, code, JSON
+• Duplicate detection to keep your history clean
+
+Organisation
+• Tags with a 10-color palette for quick grouping
+• Collections to bundle related clips into named sets
+• Rich Markdown notes attached to any clip
+• Temporary clips that auto-expire after a time or after a number of uses
+• Biometric lock to protect sensitive clips
+
+Productivity
+• 13 text transformations (uppercase, slugify, JSON pretty-print, base64, ROT13, and more) with live preview
+• Paste queue to store multiple snippets and paste them in order
+• Reusable text snippets with token expansion
+• Export your history as CSV, Markdown, or plain text
+
+Integration
+• Enhanced link previews with OpenGraph metadata
+• Share text to ClipVault from any app via the system share sheet
+• Deep links (clipvault:// and https://clipvault.app)
+• Floating bubble overlay for quick access from any screen
+• Shake-to-open gesture
+• Home screen widget and Quick Settings tile
+
+Design
+• Material 3 with dynamic color and AMOLED black
+• Smooth motion and micro-interactions
+• Haptic feedback tuned for each action
+
+Privacy
+ClipVault requests no network permissions except the optional INTERNET access used to fetch link previews. It contains no analytics, tracking, or telemetry.

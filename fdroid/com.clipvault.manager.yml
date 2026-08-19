@@ -1,0 +1,64 @@
+# F-Droid metadata for ClipVault.
+#
+# This file is a working copy of the entry that belongs in F-Droid's
+# "fdroiddata" repository (https://gitlab.com/fdroid/fdroiddata):
+#   metadata/com.clipvault.manager.yml
+#
+# To submit: open a Merge Request against fdroiddata with this file, filling in
+# the placeholders marked <...> below. See:
+#   https://f-droid.org/en/docs/Inclusion_How-To/
+#   https://f-droid.org/en/docs/Build_Metadata_Reference/
+
+Categories:
+  - Productivity
+License: MIT
+WebSite: https://github.com/bilboo00/ClipVault
+SourceCode: https://github.com/bilboo00/ClipVault
+IssueTracker: https://github.com/bilboo00/ClipVault/issues
+Changelog: https://github.com/bilboo00/ClipVault/releases
+
+Name: ClipVault
+AutoName: ClipVault
+Summary: Local-first clipboard manager
+Description: |-
+  ClipVault captures everything you copy and stores it in a private on-device
+  SQLite database. No accounts, no cloud, no tracking.
+
+  Features:
+   * Automatic background capture (foreground service, plus an optional
+     accessibility service for Android 10+ background restrictions)
+   * Full-text search with highlighted matches
+   * Pin, tags (10-color palette), collections, and Markdown notes
+   * Temporary clips that auto-expire by time or use count
+   * Biometric lock for sensitive clips
+   * 13 text transformations, paste queue, and reusable snippets
+   * Export history as CSV, Markdown, or plain text
+   * Enhanced link previews, share-sheet capture, deep links, floating
+     bubble, home screen widget, and Quick Settings tile
+
+  The INTERNET permission is used only for optional OpenGraph link previews.
+  The app has no analytics, tracking, or telemetry.
+
+Repo: https://github.com/bilboo00/ClipVault
+Binaries: https://github.com/bilboo00/ClipVault/releases/download/v%v/app-release.apk
+
+Builds:
+  - versionName: 1.2.0
+    versionCode: 4
+    commit: <FILL: commit hash the release APK was built from>
+    subdir: .
+    gradle:
+      - :app:assembleRelease
+    output: app/build/outputs/apk/release/app-release.apk
+
+# SHA-256 digest of the release signing certificate, colon-separated lowercase
+# hex. Regenerate from the signed APK with:
+#   apksigner verify --print-certs app-release.apk
+# (must match exactly, otherwise the upstream-signed APK won't be published).
+AllowedAPKSigningKeys:
+  - 82:c5:e5:d6:58:a3:42:58:87:86:99:6e:7c:d9:20:1d:af:f5:4e:70:0d:dd:28:60:78:ec:a8:40:ef:f5:fc:4b
+
+AutoUpdateMode: Version
+UpdateCheckMode: Tags
+CurrentVersion: 1.2.0
+CurrentVersionCode: 4

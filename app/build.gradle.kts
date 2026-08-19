@@ -72,6 +72,13 @@ android {
         buildConfig = true
     }
 
+    dependenciesInfo {
+        // Drop the encrypted Google dependency-info blob from APKs. It's opaque
+        // to everyone except Google and breaks bit-reproducibility checks
+        // (F-Droid / IzzyOnDroid), so there's no reason to ship it.
+        includeInApk = false
+    }
+
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
