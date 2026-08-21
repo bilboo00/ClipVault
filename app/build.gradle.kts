@@ -8,6 +8,19 @@ plugins {
     id("com.google.dagger.hilt.android")
 }
 
+val signingProps: Properties? = rootProject.file("local.properties").let { f ->
+    if (f.exists()) Properties().apply { f.inputStream().use(::load) } else null
+}
+
+configurations.all {
+    resolutionStrategy {
+        force("org.jetbrains.kotlin:kotlin-stdlib:2.0.20")
+        force("org.jetbrains.kotlin:kotlin-stdlib-jdk7:2.0.20")
+        force("org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.0.20")
+        force("org.jetbrains.kotlin:kotlin-stdlib-common:2.0.20")
+    }
+}
+
 android {
     namespace = "com.clipvault.manager"
     compileSdk = 34
@@ -19,6 +32,9 @@ android {
         versionCode = 4
         versionName = "1.2.0"
         vectorDrawables { useSupportLibrary = true }
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
     }
 
     signingConfigs {
@@ -28,9 +44,6 @@ android {
         //   CLIPVAULT_STORE_PASSWORD=...
         //   CLIPVAULT_KEY_ALIAS=...
         //   CLIPVAULT_KEY_PASSWORD=...
-        val signingProps = rootProject.file("local.properties").let { f ->
-            if (f.exists()) Properties().apply { f.inputStream().use(::load) } else null
-        }
         if (signingProps != null && signingProps.getProperty("CLIPVAULT_STORE_FILE") != null) {
             create("release") {
                 storeFile = rootProject.file(signingProps.getProperty("CLIPVAULT_STORE_FILE"))
@@ -95,7 +108,7 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.9.1")
 
     // Compose
-    implementation(platform("androidx.compose:compose-bom:2024.08.00"))
+    implementation(platform("androidx.compose:compose-bom:2024.12.01"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
@@ -108,7 +121,12 @@ dependencies {
     // Room
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
+    implementation("androidx.room:room-paging:2.6.1")
     ksp("androidx.room:room-compiler:2.6.1")
+
+    // Paging
+    implementation("androidx.paging:paging-runtime-ktx:3.3.4")
+    implementation("androidx.paging:paging-compose:3.3.4")
 
     // Hilt
     implementation("com.google.dagger:hilt-android:2.52")
@@ -128,21 +146,15 @@ dependencies {
     implementation("androidx.glance:glance-appwidget:1.1.0")
 
     // Biometric authentication
-    implementation("androidx.biometric:biometric:1.2.0-alpha05")
+    implementation("androidx.biometric:biometric:1.1.0")
 
-    // Open Graph / link preview parsing
-    implementation("org.jsoup:jsoup:1.17.2")
-
-    // AppCompat (required for BiometricPrompt with FragmentActivity)
-    implementation("androidx.appcompat:appcompat:1.7.0")
-
-    // Testing
-    testImplementation("junit:junit:4.13.2")
-    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
-    androidTestImplementation("androidx.test.ext:junit:1.2.1")
-    androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
-    androidTestImplementation(platform("androidx.compose:compose-bom:2024.08.00"))
-    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
-    debugImplementation("androidx.compose.ui:ui-tooling")
-    debugImplementation("androidx.compose.ui:ui-test-manifest")
+    // Testing (disabled — no test sources; re-enable when tests are added)
+    // testImplementation("junit:junit:4.13.2")
+    // testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
+    // androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    // androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
+    // androidTestImplementation(platform("androidx.compose:compose-bom:2024.08.00"))
+    // androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    // debugImplementation("androidx.compose.ui:ui-tooling")
+    // debugImplementation("androidx.compose.ui:ui-test-manifest")
 }

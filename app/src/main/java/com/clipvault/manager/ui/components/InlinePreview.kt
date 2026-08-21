@@ -33,6 +33,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -131,7 +134,8 @@ private fun ActionChip(
         modifier = modifier
             .fillMaxWidth()
             .padding(top = 8.dp)
-            .clickable(onClick = onClick),
+            .clickable(onClick = onClick)
+            .semantics { role = Role.Button },
         shape = RoundedCornerShape(12.dp),
         color = MaterialTheme.colorScheme.primaryContainer
     ) {
@@ -155,15 +159,4 @@ private fun ActionChip(
             )
         }
     }
-}
-
-/**
- * Loader that fetches a URL preview title asynchronously from the DAO.
- * Returns a remembered state that updates when the cache changes.
- */
-@Composable
-fun rememberUrlTitle(url: String): String? {
-    // For brevity, the home screen uses a simpler flow that calls
-    // UrlPreviewRepository directly. This stub stays for future use.
-    return null
 }

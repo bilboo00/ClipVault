@@ -17,6 +17,7 @@ import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -24,6 +25,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 
 /**
@@ -52,8 +57,13 @@ fun AnimatedCopyButton(
     Box(
         modifier = modifier
             .size(32.dp)
+            .minimumInteractiveComponentSize()
             .clip(CircleShape)
-            .background(bg),
+            .background(bg)
+            .semantics {
+                role = Role.Button
+                contentDescription = if (isCopied) "Copied" else "Copy"
+            },
         contentAlignment = Alignment.Center
     ) {
         AnimatedContent(
@@ -67,7 +77,7 @@ fun AnimatedCopyButton(
             if (copied) {
                 Icon(
                     imageVector = Icons.Outlined.Check,
-                    contentDescription = "Copied",
+                    contentDescription = null,
                     tint = tint,
                     modifier = Modifier
                         .size(16.dp)
@@ -76,7 +86,7 @@ fun AnimatedCopyButton(
             } else {
                 Icon(
                     imageVector = Icons.Outlined.ContentPaste,
-                    contentDescription = "Copy",
+                    contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(16.dp)
                 )

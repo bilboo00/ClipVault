@@ -19,6 +19,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -31,14 +32,13 @@ class ClipboardAccessibilityService : AccessibilityService() {
     private var lastSeen: String? = null
     private var lastSeenAt: Long = 0L
     private var lastVerifyAt: Long = 0L
+    private val monitoringEnabledCached = AtomicBoolean(true)
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         try {
             serviceInfo = (serviceInfo ?: AccessibilityServiceInfo()).apply {
                 eventTypes = AccessibilityEvent.TYPE_VIEW_CLICKED or
-                    AccessibilityEvent.TYPE_VIEW_FOCUSED or
-                    AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED or
                     AccessibilityEvent.TYPE_VIEW_LONG_CLICKED
                 feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
                 notificationTimeout = 200
@@ -49,14 +49,24 @@ class ClipboardAccessibilityService : AccessibilityService() {
         } catch (e: Exception) {
             android.util.Log.w("AccessibilityService", "Failed to configure serviceInfo", e)
         }
+        // Periodically refresh the monitoring-enabled flag so we don't read
+        // DataStore on every accessibility event (which can fire many times
+        // per second). SettingsManager.monitoringEnabled is a Flow<Boolean>
+        // (not StateFlow) so caching via AtomicBoolean is the lightest path.
+        scope.launch {
+            while (isActive) {
+                runCatching { monitoringEnabledCached.set(settings.monitoringEnabled.first()) }
+                delay(MONITORING_REFRESH_MS)
+            }
+        }
     }
 
     @android.annotation.SuppressLint("SwitchIntDef")
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
         try {
-            // eventType is a framework int without an @IntDef we can reuse;
-            // the constants below are still compile-time verified by name.
+            // Only VIEW_CLICKED and VIEW_LONG_CLICKED are subscribed (see
+            // onServiceConnected). Any other type is ignored.
             when (event.eventType) {
                 AccessibilityEvent.TYPE_VIEW_CLICKED,
                 AccessibilityEvent.TYPE_VIEW_LONG_CLICKED -> {
@@ -65,15 +75,6 @@ class ClipboardAccessibilityService : AccessibilityService() {
                         text.contains("cut") || text.contains("select all")) {
                         attemptRead(reason = "copy-action")
                     }
-                }
-                AccessibilityEvent.TYPE_VIEW_FOCUSED -> {
-                    val cls = event.className?.toString().orEmpty()
-                    if (cls.contains("EditText") || cls.contains("TextView")) {
-                        attemptRead(reason = "text-focused")
-                    }
-                }
-                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
-                    attemptRead(reason = "window-change")
                 }
             }
         } catch (e: Exception) {
@@ -88,8 +89,7 @@ class ClipboardAccessibilityService : AccessibilityService() {
 
         scope.launch {
             try {
-                val enabled = settings.monitoringEnabled.first()
-                if (!enabled) return@launch
+                if (!monitoringEnabledCached.get()) return@launch
                 val cm = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
                 val clip: ClipData? = cm.primaryClip
                 if (clip == null || clip.itemCount == 0) return@launch
@@ -113,8 +113,8 @@ class ClipboardAccessibilityService : AccessibilityService() {
                     lastVerifyAt = now
                     if (repository.contentExists(text)) return@launch
                 }
-                // Advance lastSeen even when saveIfNew dedupes, so window-change
-                // events don't re-query the DB for already-known content.
+                // Advance lastSeen even when saveIfNew dedupes, so click events
+                // don't re-query the DB for already-known content.
                 lastSeen = text
                 repository.saveIfNew(text, sourceLabel = reason)
             } catch (_: SecurityException) {
@@ -135,5 +135,6 @@ class ClipboardAccessibilityService : AccessibilityService() {
     companion object {
         private const val READ_DEBOUNCE_MS = 400L
         private const val REVERIFY_INTERVAL_MS = 30_000L
+        private const val MONITORING_REFRESH_MS = 5_000L
     }
 }

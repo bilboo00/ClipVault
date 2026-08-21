@@ -1,12 +1,13 @@
 package com.clipvault.manager.domain
 
+import android.util.Log
 import com.clipvault.manager.data.local.entity.ClipEntity
 import com.clipvault.manager.data.preferences.PasteQueueData
 import com.clipvault.manager.data.preferences.PasteQueueStorage
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -18,14 +19,18 @@ import javax.inject.Singleton
 class PasteQueueManager @Inject constructor(
     private val storage: PasteQueueStorage
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val scope = CoroutineScope(
+        SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler { _, e ->
+            Log.w("PasteQueueManager", "scope failure", e)
+        }
+    )
     private val _clipIds = MutableStateFlow<List<Long>>(emptyList())
     private val _currentIndex = MutableStateFlow(0)
     private val _items = MutableStateFlow<List<ClipEntity>>(emptyList())
 
     val items: StateFlow<List<ClipEntity>> = _items.asStateFlow()
     val currentIndex: StateFlow<Int> = _currentIndex.asStateFlow()
-    val queueFlow: Flow<PasteQueueData> = storage.queue
+    val queueFlow: StateFlow<PasteQueueData> = storage.queue
 
     init {
         // Restore the persisted queue on process start; without this the
@@ -100,6 +105,6 @@ class PasteQueueManager @Inject constructor(
     }
 
     private suspend fun persist() {
-        storage.setQueue(_clipIds.value, _currentIndex.value)
+        storage.setQueue(PasteQueueData(_clipIds.value, _currentIndex.value))
     }
 }

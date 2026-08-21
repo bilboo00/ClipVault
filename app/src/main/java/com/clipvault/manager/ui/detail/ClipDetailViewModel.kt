@@ -12,18 +12,20 @@ import com.clipvault.manager.data.repository.TagRepository
 import com.clipvault.manager.domain.PasteQueueManager
 import com.clipvault.manager.domain.model.Clip
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -56,8 +58,8 @@ class ClipDetailViewModel @Inject constructor(
     private val idFlow = MutableStateFlow(0L)
     private val unlockedSet = MutableStateFlow<Set<Long>>(emptySet())
 
-    private val _events = Channel<ClipDetailEvent>(Channel.BUFFERED)
-    val events: kotlinx.coroutines.flow.Flow<ClipDetailEvent> = _events.receiveAsFlow()
+    private val _events = MutableSharedFlow<ClipDetailEvent>(extraBufferCapacity = 8, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+    val events: SharedFlow<ClipDetailEvent> = _events.asSharedFlow()
 
     val state: StateFlow<ClipDetailState> = idFlow
         .flatMapLatest { id ->
@@ -122,7 +124,7 @@ class ClipDetailViewModel @Inject constructor(
     fun delete(clip: Clip) = viewModelScope.launch {
         val entity = clipDao.getById(clip.id) ?: return@launch
         repository.delete(clip.id)
-        _events.send(ClipDetailEvent.Deleted(entity))
+        _events.emit(ClipDetailEvent.Deleted(entity))
     }
 
     fun undoDelete(entity: com.clipvault.manager.data.local.entity.ClipEntity) = viewModelScope.launch {
@@ -154,16 +156,19 @@ class ClipDetailViewModel @Inject constructor(
 
     fun toggleLock(clip: Clip, onResult: (Boolean) -> Unit = {}) = viewModelScope.launch {
         val newLocked = !clip.isLocked
-        repository.setLocked(clip.id, newLocked)
-        // Keep the session-unlock set consistent with the DB state so the UI
-        // actually reflects the new lock status immediately.
-        unlockedSet.value = if (newLocked) unlockedSet.value - clip.id
-        else unlockedSet.value + clip.id
-        onResult(newLocked)
+        try {
+            repository.setLocked(clip.id, newLocked)
+            // Keep the session-unlock set consistent with the DB state so the UI
+            // actually reflects the new lock status immediately.
+            unlockedSet.update { if (newLocked) it - clip.id else it + clip.id }
+            onResult(newLocked)
+        } catch (e: Exception) {
+            android.util.Log.e("ClipDetailVM", "toggleLock failed", e)
+        }
     }
 
     fun relock(clip: Clip) {
-        unlockedSet.value = unlockedSet.value - clip.id
+        unlockedSet.update { it - clip.id }
     }
 
     fun recordUsage() = viewModelScope.launch {

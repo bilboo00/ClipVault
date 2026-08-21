@@ -1,8 +1,5 @@
 package com.clipvault.manager.ui.home
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
@@ -33,6 +30,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.paging.compose.collectAsLazyPagingItems
+import androidx.paging.compose.itemContentType
+import androidx.paging.compose.itemKey
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -63,6 +63,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -78,7 +79,12 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -93,6 +99,7 @@ import com.clipvault.manager.data.local.entity.ClipType
 import com.clipvault.manager.domain.model.Clip
 import com.clipvault.manager.domain.model.ClipClassifier
 import com.clipvault.manager.util.ClipUtils
+import com.clipvault.manager.util.ImageCopier
 import com.clipvault.manager.ui.components.AnimatedCopyButton
 import com.clipvault.manager.ui.components.CopyHeroOverlay
 import com.clipvault.manager.ui.components.EmptyStateWithOrb
@@ -111,10 +118,9 @@ import com.clipvault.manager.ui.components.draggableItem
 import com.clipvault.manager.ui.components.rememberCopyHeroState
 import com.clipvault.manager.ui.components.rememberStackedSnackbarHostState
 import com.clipvault.manager.ui.theme.Motion
+import com.clipvault.manager.util.rememberRelativeTime
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.text.DateFormat
-import java.util.Date
 
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
@@ -137,9 +143,18 @@ fun HomeScreen(
     // Shared reorder list for pinned-clip drag reordering. Kept in sync with
     // the underlying list; mutated locally during a drag, restored on DB change.
     val reorderList = remember { mutableStateListOf<Clip>() }
-    LaunchedEffect(state.clips) {
+    var dragInProgress by remember { mutableStateOf(false) }
+    LaunchedEffect(state.pinnedClips) {
+        if (dragInProgress) return@LaunchedEffect
         reorderList.clear()
-        reorderList.addAll(state.clips)
+        reorderList.addAll(state.pinnedClips)
+    }
+
+    val lazyClips = viewModel.clipsFlow.collectAsLazyPagingItems()
+    LaunchedEffect(lazyClips.itemCount) {
+        viewModel.setLoadedIds(
+            lazyClips.itemSnapshotList.items.mapTo(mutableSetOf()) { it.id }
+        )
     }
 
     // Shake-to-clear (#4) — only listen while the app is foregrounded so the
@@ -155,26 +170,38 @@ fun HomeScreen(
     }
 
     // Hoisted callbacks (stable identities)
-    val onCopy: (Clip, () -> Offset?) -> Unit = { clip, getPosition ->
-        if (!clip.isLocked) {
-            haptics.light()
-            ClipUtils.copyToClipboard(context, clip.content, clip.imageUri)
-            viewModel.flashCopied(clip.id)
-            viewModel.recordUsage(clip.id)
-            val pos = getPosition()
-            if (pos != null) {
-                val w = context.resources.displayMetrics.widthPixels.toFloat()
-                val h = context.resources.displayMetrics.heightPixels.toFloat()
-                hero.launch(pos, Offset(w - 160f, h - 280f))
+    val onCopy: (Clip, () -> Offset?) -> Unit = remember(
+        viewModel, haptics, hero, snackbarHostState, scope, context, state
+    ) {
+        { clip, getPosition ->
+            if (!clip.isLocked) {
+                haptics.light()
+                ClipUtils.copyToClipboard(context, clip.content, clip.imageUri)
+                viewModel.flashCopied(clip.id)
+                viewModel.recordUsage(clip.id)
+                val pos = getPosition()
+                if (pos != null) {
+                    val w = context.resources.displayMetrics.widthPixels.toFloat()
+                    val h = context.resources.displayMetrics.heightPixels.toFloat()
+                    hero.launch(pos, Offset(w - 160f, h - 280f))
+                }
+            } else {
+                scope.launch { snackbarHostState.show("Locked clip — unlock it to copy") }
             }
-        } else {
-            scope.launch { snackbarHostState.show("Locked clip — unlock it to copy") }
         }
     }
-    val onPin: (Clip) -> Unit = { clip -> haptics.medium(); viewModel.togglePin(clip) }
-    val onFavorite: (Clip) -> Unit = { clip -> haptics.light(); viewModel.toggleFavorite(clip) }
-    val onDelete: (Clip) -> Unit = { clip -> haptics.heavy(); viewModel.delete(clip) }
-    val onLongPressEnterSelect: (Clip) -> Unit = { clip -> haptics.medium(); viewModel.enterMultiSelect(clip.id) }
+    val onPin: (Clip) -> Unit = remember(viewModel, haptics) {
+        { clip -> haptics.medium(); viewModel.togglePin(clip) }
+    }
+    val onFavorite: (Clip) -> Unit = remember(viewModel, haptics) {
+        { clip -> haptics.light(); viewModel.toggleFavorite(clip) }
+    }
+    val onDelete: (Clip) -> Unit = remember(viewModel, haptics) {
+        { clip -> haptics.heavy(); viewModel.delete(clip) }
+    }
+    val onLongPressEnterSelect: (Clip) -> Unit = remember(viewModel, haptics) {
+        { clip -> haptics.medium(); viewModel.enterMultiSelect(clip.id) }
+    }
 
     LaunchedEffect(Unit) {
         viewModel.events.collect { event ->
@@ -241,11 +268,11 @@ fun HomeScreen(
                 if (multi) {
                     MultiSelectTopBar(
                         selectedCount = state.selectedIds.size,
-                        totalCount = state.clips.size,
+                        totalCount = state.loadedCount,
                         scrollBehavior = topBarBehavior,
                         onSelectAll = {
                             haptics.light()
-                            if (state.selectedIds.size == state.clips.size) viewModel.clearSelection()
+                            if (state.selectedIds.size == state.loadedCount) viewModel.clearSelection()
                             else viewModel.selectAll()
                         },
                         onClose = {
@@ -255,7 +282,7 @@ fun HomeScreen(
                     )
                 } else {
                     NormalTopBar(
-                        count = state.clips.size,
+                        count = state.totalCount,
                         monitoringActive = state.monitoringActive,
                         queueSize = state.queueItems.size,
                         scrollBehavior = topBarBehavior,
@@ -277,12 +304,7 @@ fun HomeScreen(
                     isPulsing = state.savingNow,
                     onClick = {
                         haptics.medium()
-                        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        try {
-                            val text = cm.primaryClip?.getItemAt(0)
-                                ?.coerceToText(context)?.toString().orEmpty()
-                            viewModel.saveCurrentClipboard(text)
-                        } catch (_: SecurityException) { }
+                        scope.launch { viewModel.saveCurrentClipboardNow() }
                     }
                 )
             }
@@ -296,10 +318,10 @@ fun HomeScreen(
             ) {
                 MultiSelectActionBar(
                     selectedCount = state.selectedIds.size,
-                    totalCount = state.clips.size,
+                    totalCount = state.loadedCount,
                     onSelectAll = {
                         haptics.light()
-                        if (state.selectedIds.size == state.clips.size) viewModel.clearSelection()
+                        if (state.selectedIds.size == state.loadedCount) viewModel.clearSelection()
                         else viewModel.selectAll()
                     },
                     onPin = { haptics.medium(); viewModel.bulkPin() },
@@ -318,7 +340,7 @@ fun HomeScreen(
                 )
             }
             Box(modifier = Modifier.fillMaxSize()) {
-             if (state.clips.isEmpty()) {
+             if (state.pinnedClips.isEmpty() && lazyClips.itemCount == 0) {
                 EmptyStateWithOrb(
                     title = "Nothing copied yet",
                     subtitle = "Copy text anywhere — it shows up here.\nShake to clear history · long-press to multi-select.",
@@ -336,63 +358,86 @@ fun HomeScreen(
                     ),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    val grouped = groupClipsByDate(state.clips)
-                    grouped.forEach { (header, clips) ->
-                        stickyHeader(key = "header_$header", contentType = "header") {
+                    if (state.pinnedClips.isNotEmpty()) {
+                        item(key = "header_pinned", contentType = "header") {
+                            DateSectionHeader("Pinned")
+                        }
+                        items(
+                            items = state.pinnedClips,
+                            key = { it.id },
+                            contentType = { "clip" }
+                        ) { clip ->
+                            ClipRowItem(
+                                clip = clip,
+                                modifier = Modifier.animateItemPlacement(
+                                    spring(
+                                        dampingRatio = androidx.compose.animation.core.Spring.DampingRatioNoBouncy,
+                                        stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
+                                    )
+                                ),
+                                multiSelectMode = state.multiSelectMode,
+                                selectedIds = state.selectedIds,
+                                justCopied = state.justCopiedForId == clip.id,
+                                listState = listState,
+                                reorderList = reorderList,
+                                onCopy = onCopy,
+                                onPin = onPin,
+                                onFavorite = onFavorite,
+                                onDelete = onDelete,
+                                onClick = { onOpenDetail(clip.id) },
+                                onLongPress = { onLongPressEnterSelect(clip) },
+                                onReorderPinned = { newOrder ->
+                                    scope.launch { viewModel.persistPinnedOrder(newOrder) }
+                                },
+                                onEnterMultiSelect = { viewModel.enterMultiSelect(clip.id) },
+                                onToggleSelection = { viewModel.toggleSelection(clip.id) },
+                                onFetchUrlTitle = { viewModel.fetchUrlTitle(clip.id, clip.content) },
+                                onDragStateChange = { dragInProgress = it },
+                                urlTitle = urlTitles[clip.id]
+                            )
+                        }
+                    }
+                    items(
+                        count = lazyClips.itemCount,
+                        key = lazyClips.itemKey { "paged_${it.id}" },
+                        contentType = lazyClips.itemContentType { "clip" }
+                    ) { index ->
+                        val clip = lazyClips[index] ?: return@items
+                        val header = headerForClip(clip)
+                        val prevClip = if (index > 0) lazyClips[index - 1] else null
+                        val prevHeader = prevClip?.let { headerForClip(it) }
+                        if (header != null && header != prevHeader) {
                             DateSectionHeader(header)
                         }
-                       items(clips, key = { it.id }, contentType = { "clip" }) { clip ->
-                          // Trigger background fetch for URL clips so the preview
-                          // title shows up once the network request completes.
-                          if (clip.type == ClipType.URL && !clip.isLocked) {
-                              LaunchedEffect(clip.id) { viewModel.fetchUrlTitle(clip.id, clip.content) }
-                          }
-                          val isSelected = clip.id in state.selectedIds
-                         Box(
-                             Modifier.animateItemPlacement(
-                                 spring(
-                                     dampingRatio = androidx.compose.animation.core.Spring.DampingRatioNoBouncy,
-                                     stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
-                                 )
-                             )
-                         ) {
-                         when {
-                             state.multiSelectMode -> {
-                                 MultiSelectClipRow(
-                                     clip = clip,
-                                     isMultiSelect = true,
-                                     isSelected = isSelected,
-                                     onCopy = { onCopy(clip) { null } },
-                                     onPin = { onPin(clip) },
-                                     onDelete = { onDelete(clip) },
-                                     onClick = { /* handled by onSelectionToggle */ },
-                                     onLongPress = { viewModel.enterMultiSelect(clip.id) },
-                                     onSelectionToggle = { viewModel.toggleSelection(clip.id) }
-                                 )
-                             }
-                             else -> {
-                           ClipRowWithHero(
-                               clip = clip,
-                               justCopied = state.justCopiedForId == clip.id,
-                               multiSelectMode = state.multiSelectMode,
-                               listState = listState,
-                               reorderList = reorderList,
-                               onCopy = onCopy,
-                               onPin = onPin,
-                               onFavorite = onFavorite,
-                               onDelete = onDelete,
-                               onClick = { onOpenDetail(clip.id) },
-                               onLongPress = { onLongPressEnterSelect(clip) },
-                               onReorderPinned = { newOrder ->
-                                   scope.launch { viewModel.persistPinnedOrder(newOrder) }
-                               },
-                               urlTitle = urlTitles[clip.id]
-                           )
-                             }
-                         }
-                       }
-                       }
-                  }
+                        ClipRowItem(
+                            clip = clip,
+                            modifier = Modifier.animateItemPlacement(
+                                spring(
+                                    dampingRatio = androidx.compose.animation.core.Spring.DampingRatioNoBouncy,
+                                    stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
+                                )
+                            ),
+                            multiSelectMode = state.multiSelectMode,
+                            selectedIds = state.selectedIds,
+                            justCopied = state.justCopiedForId == clip.id,
+                            listState = listState,
+                            reorderList = reorderList,
+                            onCopy = onCopy,
+                            onPin = onPin,
+                            onFavorite = onFavorite,
+                            onDelete = onDelete,
+                            onClick = { onOpenDetail(clip.id) },
+                            onLongPress = { onLongPressEnterSelect(clip) },
+                            onReorderPinned = { newOrder ->
+                                scope.launch { viewModel.persistPinnedOrder(newOrder) }
+                            },
+                            onEnterMultiSelect = { viewModel.enterMultiSelect(clip.id) },
+                            onToggleSelection = { viewModel.toggleSelection(clip.id) },
+                            onFetchUrlTitle = { viewModel.fetchUrlTitle(clip.id, clip.content) },
+                            onDragStateChange = { dragInProgress = it },
+                            urlTitle = urlTitles[clip.id]
+                        )
+                    }
              }
          }
             // Hero copy animation overlay
@@ -466,6 +511,74 @@ fun HomeScreen(
 }
 
 /**
+ * Renders a single clip card in the list, switching between the
+ * multi-select row and the normal hero row depending on [multiSelectMode].
+ * Shared by the pinned section and the paged unpinned section. [modifier] is
+ * supplied by the caller so it can include `LazyItemScope` extensions like
+ * `animateItemPlacement`.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ClipRowItem(
+    clip: Clip,
+    modifier: Modifier,
+    multiSelectMode: Boolean,
+    selectedIds: Set<Long>,
+    justCopied: Boolean,
+    listState: androidx.compose.foundation.lazy.LazyListState,
+    reorderList: androidx.compose.runtime.snapshots.SnapshotStateList<Clip>,
+    onCopy: (Clip, () -> Offset?) -> Unit,
+    onPin: (Clip) -> Unit,
+    onFavorite: (Clip) -> Unit,
+    onDelete: (Clip) -> Unit,
+    onClick: () -> Unit,
+    onLongPress: () -> Unit,
+    onReorderPinned: (List<Long>) -> Unit,
+    onEnterMultiSelect: () -> Unit,
+    onToggleSelection: () -> Unit,
+    onFetchUrlTitle: () -> Unit,
+    onDragStateChange: (Boolean) -> Unit,
+    urlTitle: String? = null
+) {
+    if (clip.type == ClipType.URL && !clip.isLocked) {
+        LaunchedEffect(clip.id) { onFetchUrlTitle() }
+    }
+    val isSelected = clip.id in selectedIds
+    Box(modifier) {
+        if (multiSelectMode) {
+            MultiSelectClipRow(
+                clip = clip,
+                isMultiSelect = true,
+                isSelected = isSelected,
+                onCopy = { onCopy(clip) { null } },
+                onPin = { onPin(clip) },
+                onDelete = { onDelete(clip) },
+                onClick = { /* handled by onSelectionToggle */ },
+                onLongPress = onEnterMultiSelect,
+                onSelectionToggle = onToggleSelection
+            )
+        } else {
+            ClipRowWithHero(
+                clip = clip,
+                justCopied = justCopied,
+                multiSelectMode = multiSelectMode,
+                listState = listState,
+                reorderList = reorderList,
+                onCopy = onCopy,
+                onPin = onPin,
+                onFavorite = onFavorite,
+                onDelete = onDelete,
+                onClick = onClick,
+                onLongPress = onLongPress,
+                onReorderPinned = onReorderPinned,
+                onDragStateChange = onDragStateChange,
+                urlTitle = urlTitle
+            )
+        }
+    }
+}
+
+/**
  * Sub-composable that bundles drag-reorder + position tracking + normal card.
  * Hoisted out of [HomeScreen] to keep the list lambda readable.
  */
@@ -484,6 +597,7 @@ private fun ClipRowWithHero(
     onClick: () -> Unit,
     onLongPress: () -> Unit,
     onReorderPinned: (List<Long>) -> Unit,
+    onDragStateChange: (Boolean) -> Unit,
     urlTitle: String? = null
 ) {
     val cardPosition = remember { mutableStateOf<Offset?>(null) }
@@ -495,7 +609,9 @@ private fun ClipRowWithHero(
             itemId = clip.id,
             items = reorderList,
             equalityOf = { it.id },
+            onDragStart = { onDragStateChange(true) },
             onDragEnd = {
+                onDragStateChange(false)
                 // Persist the complete pinned order once per drag.
                 onReorderPinned(reorderList.filter { it.isPinned }.map { it.id })
             }
@@ -622,10 +738,16 @@ private fun NormalClipCard(
     onLongPress: () -> Unit,
     urlTitle: String? = null
 ) {
+    val formatTime = rememberRelativeTime()
+    val formatRemaining = remember { ::formatRemaining }
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .combinedClickable(onClick = onClick, onLongClick = onLongPress),
+            .combinedClickable(onClick = onClick, onLongClick = onLongPress)
+            .semantics {
+                role = Role.Button
+                contentDescription = "Clip: ${clip.preview}"
+            },
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (clip.isPinned) MaterialTheme.colorScheme.primaryContainer
@@ -636,19 +758,26 @@ private fun NormalClipCard(
     ) {
         Column(modifier = Modifier.padding(10.dp)) {
             if (clip.type == ClipType.IMAGE && clip.imageUri != null && !clip.isLocked) {
-                val bitmap by produceState<android.graphics.Bitmap?>(initialValue = null, clip.imageUri) {
+                val density = LocalDensity.current.density
+                val reqWidth = (360 * density).toInt()
+                val reqHeight = (112 * density).toInt()
+                val bitmap by produceState<android.graphics.Bitmap?>(
+                    initialValue = null,
+                    clip.imageUri, reqWidth, reqHeight
+                ) {
                     value = withContext(kotlinx.coroutines.Dispatchers.Default) {
-                        runCatching {
-                            decodeSampled(clip.imageUri!!, 800, 600)
-                                ?.let { android.graphics.Bitmap.createScaledBitmap(it, 400, 300, true) }
-                        }.getOrNull()
+                        clip.imageUri?.let { uri ->
+                            runCatching {
+                                ImageCopier.decodeBitmapSampled(uri, reqWidth, reqHeight)
+                            }.getOrNull()
+                        }
                     }
                 }
                 val bmp = bitmap
                 if (bmp != null) {
                     androidx.compose.foundation.Image(
                         bitmap = bmp.asImageBitmap(),
-                        contentDescription = "Image clip",
+                        contentDescription = "Image clip, copied ${formatTime(clip.createdAt)}",
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(112.dp)
@@ -672,7 +801,9 @@ private fun NormalClipCard(
                 androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
                 IconButton(
                     onClick = onFavorite,
-                    modifier = Modifier.size(32.dp)
+                    modifier = Modifier
+                        .size(32.dp)
+                        .minimumInteractiveComponentSize()
                 ) {
                     Icon(
                         imageVector = if (clip.isFavorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
@@ -684,7 +815,9 @@ private fun NormalClipCard(
                 }
                 IconButton(
                     onClick = onPin,
-                    modifier = Modifier.size(32.dp)
+                    modifier = Modifier
+                        .size(32.dp)
+                        .minimumInteractiveComponentSize()
                 ) {
                     Icon(
                         imageVector = if (clip.isPinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
@@ -728,7 +861,9 @@ private fun NormalClipCard(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(
                         onClick = onDelete,
-                        modifier = Modifier.size(32.dp)
+                        modifier = Modifier
+                            .size(32.dp)
+                            .minimumInteractiveComponentSize()
                     ) {
                         Icon(
                             Icons.Outlined.Delete,
@@ -782,27 +917,6 @@ private fun NormalClipCard(
             }
         }
     }
-}
-
-/**
- * Decodes an image at (roughly) [reqWidth]x[reqHeight] without ever holding a
- * full-resolution bitmap in memory: bounds are read first and a power-of-two
- * inSampleSize skips straight to a small decode.
- */
-private fun decodeSampled(path: String, reqWidth: Int, reqHeight: Int): android.graphics.Bitmap? {
-    val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    android.graphics.BitmapFactory.decodeFile(path, bounds)
-    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
-    var sample = 1
-    while (bounds.outWidth / (sample * 2) >= reqWidth &&
-        bounds.outHeight / (sample * 2) >= reqHeight
-    ) {
-        sample *= 2
-    }
-    return android.graphics.BitmapFactory.decodeFile(
-        path,
-        android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
-    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -868,18 +982,6 @@ private fun FilterChipRow(
     }
 }
 
-private fun formatTime(ts: Long): String {
-    val now = System.currentTimeMillis()
-    val diff = now - ts
-    return when {
-        diff < 60_000 -> "just now"
-        diff < 3_600_000 -> "${diff / 60_000}m ago"
-        diff < 86_400_000 -> "${diff / 3_600_000}h ago"
-        diff < 7 * 86_400_000 -> "${diff / 86_400_000}d ago"
-        else -> DateFormat.getDateInstance(DateFormat.SHORT).format(Date(ts))
-    }
-}
-
 private fun formatRemaining(expiresAt: Long): String {
     val diff = expiresAt - System.currentTimeMillis()
     if (diff <= 0) return "now"
@@ -891,8 +993,13 @@ private fun formatRemaining(expiresAt: Long): String {
     }
 }
 
-private fun groupClipsByDate(clips: List<Clip>): List<Pair<String, List<Clip>>> {
-    val now = System.currentTimeMillis()
+/**
+ * Bucket a clip into Today / Yesterday / This Week / Older so the paged list
+ * can show a section header at each day boundary. Buckets are computed
+ * relative to `System.currentTimeMillis()` at call time, matching the previous
+ * eager `groupClipsByDate` behaviour.
+ */
+private fun headerForClip(clip: Clip): String? {
     val cal = java.util.Calendar.getInstance()
     val startOfToday = cal.apply {
         set(java.util.Calendar.HOUR_OF_DAY, 0)
@@ -902,21 +1009,11 @@ private fun groupClipsByDate(clips: List<Clip>): List<Pair<String, List<Clip>>> 
     }.timeInMillis
     val startOfYesterday = startOfToday - 86_400_000L
     val startOfWeek = startOfToday - (cal.get(java.util.Calendar.DAY_OF_WEEK) - 1) * 86_400_000L
-
-    val pinned = clips.filter { it.isPinned }
-    val unpinned = clips.filter { !it.isPinned }
-
-    val today = unpinned.filter { it.createdAt >= startOfToday }
-    val yesterday = unpinned.filter { it.createdAt in startOfYesterday until startOfToday }
-    val thisWeek = unpinned.filter { it.createdAt in startOfWeek until startOfYesterday }
-    val older = unpinned.filter { it.createdAt < startOfWeek }
-
-    return buildList {
-        if (pinned.isNotEmpty()) add("Pinned" to pinned)
-        if (today.isNotEmpty()) add("Today" to today)
-        if (yesterday.isNotEmpty()) add("Yesterday" to yesterday)
-        if (thisWeek.isNotEmpty()) add("This Week" to thisWeek)
-        if (older.isNotEmpty()) add("Older" to older)
+    return when {
+        clip.createdAt >= startOfToday -> "Today"
+        clip.createdAt >= startOfYesterday -> "Yesterday"
+        clip.createdAt >= startOfWeek -> "This Week"
+        else -> "Older"
     }
 }
 

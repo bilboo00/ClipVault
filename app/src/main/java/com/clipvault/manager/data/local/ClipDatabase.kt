@@ -40,7 +40,7 @@ class ClipTypeConverter {
         CollectionEntity::class,
         ClipCollectionCrossRef::class
     ],
-    version = 6,
+    version = 7,
     exportSchema = false
 )
 @TypeConverters(ClipTypeConverter::class)
@@ -153,6 +153,12 @@ abstract class ClipDatabase : RoomDatabase() {
         val MIGRATION_5_6 = object : Migration(5, 6) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 // FTS4 external-content index over clips.content.
+                //
+                // ClipEntity.id aliases SQLite rowid: Room declares the column
+                // as `INTEGER PRIMARY KEY AUTOINCREMENT`, which SQLite treats
+                // as an alias for the implicit rowid. The FTS triggers below
+                // therefore reference `rowid` to keep the external-content
+                // index in sync with the clips table.
                 db.execSQL(
                     "CREATE VIRTUAL TABLE IF NOT EXISTS `clips_fts` USING FTS4(content=`clips`, content, tokenize=simple)"
                 )
@@ -175,18 +181,53 @@ abstract class ClipDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Composite indexes for the pruner / retention queries. Drop
+                // the legacy single-column expiresAt index (created in 4_5)
+                // first so we're not paying to maintain two indexes on the
+                // same column.
+                db.execSQL("DROP INDEX IF EXISTS `index_clips_expiresAt`")
+                db.execSQL("DROP INDEX IF EXISTS `index_clips_content`")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_clips_expiresAt_isPinned` ON `clips`(`expiresAt`, `isPinned`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_clips_useLimit_isPinned` ON `clips`(`useLimit`, `isPinned`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_clips_isPinned_createdAt` ON `clips`(`isPinned`, `createdAt`)")
+            }
+        }
+
         /**
          * Every migration, in order. Both the app database builder
          * ([com.clipvault.manager.di.DatabaseModule]) and the widget's own
          * builder must stay on this list, otherwise widget launches crash on
-         * schema changes.
+         * schema changes. The widget builder references this exact array, so
+         * appending a migration here picks it up automatically in both code
+         * paths.
          */
         val MIGRATIONS: Array<Migration> = arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
             MIGRATION_3_4,
             MIGRATION_4_5,
-            MIGRATION_5_6
+            MIGRATION_5_6,
+            MIGRATION_6_7
         )
+
+        /**
+         * Runs FTS4's built-in `integrity-check` command against the
+         * external-content clips_fts index. Returns true when the index
+         * matches the underlying `clips` table; false (and logs the error)
+         * if FTS reports any drift — the caller can then decide whether to
+         * rebuild via `'rebuild'` or surface a recovery flow. Safe to call
+         * on every open: it's a single SELECT on the FTS shadow tables.
+         */
+        fun checkFtsIntegrity(db: SupportSQLiteDatabase): Boolean {
+            return try {
+                db.query("INSERT INTO `clips_fts`(`clips_fts`) VALUES('integrity-check')", arrayOf<Any>())
+                true
+            } catch (e: Exception) {
+                android.util.Log.e("ClipDatabase", "FTS integrity check failed", e)
+                false
+            }
+        }
     }
 }

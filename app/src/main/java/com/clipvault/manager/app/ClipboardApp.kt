@@ -5,6 +5,7 @@ import com.clipvault.manager.data.preferences.SettingsManager
 import com.clipvault.manager.data.repository.ClipboardRepository
 import com.clipvault.manager.service.ClipboardMonitorService
 import dagger.hilt.android.HiltAndroidApp
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -19,7 +20,11 @@ class ClipboardApp : Application() {
     @Inject lateinit var settings: SettingsManager
     @Inject lateinit var repository: ClipboardRepository
 
-    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val appScope = CoroutineScope(
+        SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler { _, e ->
+            android.util.Log.w("ClipboardApp", "appScope failure", e)
+        }
+    )
 
     override fun onCreate() {
         super.onCreate()

@@ -28,12 +28,28 @@
 }
 -dontwarn kotlinx.coroutines.flow.**
 
-# Compose
--keep class androidx.compose.runtime.** { *; }
-
 # Hilt KSP generated entry points
 -keep class * extends dagger.hilt.android.internal.lifecycle.HiltViewModelFactory$ViewModelFactoriesEntryPoint
 -keep class * extends androidx.lifecycle.ViewModel { *; }
 
 # Keep our entity classes (Room references them by name in generated code)
 -keep class com.clipvault.manager.data.local.entity.** { *; }
+
+# jsoup
+-keep class org.jsoup.** { *; }
+-dontwarn org.jsoup.internal.**
+
+# Glance widget + protobuf
+-keep class androidx.glance.appwidget.proto.** { *; }
+-keep class androidx.glance.appwidget.protobuf.** { *; }
+-keepclassmembers class * extends androidx.glance.appwidget.GlanceAppWidget { <init>(); }
+-keepclassmembers class * extends androidx.glance.appwidget.action.ActionCallback { <init>(); }
+
+# Hilt entry points
+-keep @dagger.hilt.android.HiltAndroidApp class *
+-keep @dagger.hilt.android.AndroidEntryPoint class *
+-keep @dagger.hilt.android.lifecycle.HiltViewModel class *
+
+# Hilt transitive jsr305
+-dontwarn javax.annotation.**
+-dontwarn javax.inject.**

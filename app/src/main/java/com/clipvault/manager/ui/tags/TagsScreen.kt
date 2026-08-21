@@ -37,8 +37,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -51,6 +51,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.clipvault.manager.data.local.entity.TagEntity
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -59,7 +60,7 @@ fun TagsScreen(
     onBack: () -> Unit = {},
     viewModel: TagsViewModel = hiltViewModel()
 ) {
-    val state by viewModel.state.collectAsState()
+    val state by viewModel.state.collectAsStateWithLifecycle()
     var showCreate by remember { mutableStateOf(false) }
     var editingTag by remember { mutableStateOf<TagEntity?>(null) }
     var deletingTag by remember { mutableStateOf<TagEntity?>(null) }
@@ -160,7 +161,12 @@ private fun TagCard(
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
-    val color = parseHexColor(tag.color)
+    val color = remember(tag.color) {
+        runCatching { android.graphics.Color.parseColor(tag.color) }
+            .getOrNull()
+            ?.let { Color(it) }
+            ?: Color(0xFF4F46E5)
+    }
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -273,6 +279,7 @@ private fun TagEditorDialog(
                         Box(
                             modifier = Modifier
                                 .size(32.dp)
+                                .minimumInteractiveComponentSize()
                                 .clip(CircleShape)
                                 .background(parseHexColor(hex))
                                 .clickable { colorIndex = index }

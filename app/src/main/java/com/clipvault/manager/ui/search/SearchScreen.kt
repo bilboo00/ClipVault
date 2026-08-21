@@ -38,7 +38,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -48,10 +47,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -59,12 +63,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.clipvault.manager.haptic.rememberHaptics
 import com.clipvault.manager.domain.model.Clip
 import com.clipvault.manager.ui.components.AnimatedCopyButton
 import com.clipvault.manager.ui.components.TypeBadge
 import com.clipvault.manager.ui.theme.Motion
 import com.clipvault.manager.util.ClipUtils
+import com.clipvault.manager.util.ImageCopier
+import com.clipvault.manager.util.rememberRelativeTime
 import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -73,7 +80,7 @@ fun SearchScreen(
     onOpenDetail: (Long) -> Unit = {},
     viewModel: SearchViewModel = hiltViewModel()
 ) {
-    val state by viewModel.state.collectAsState()
+    val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val haptics = rememberHaptics()
     val focusRequester = remember { FocusRequester() }
@@ -181,10 +188,15 @@ private fun ResultRow(
     onCopy: () -> Unit
 ) {
     val primaryColor = MaterialTheme.colorScheme.primary
+    val formatTime = rememberRelativeTime()
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onOpen),
+            .clickable(onClick = onOpen)
+            .semantics {
+                role = Role.Button
+                contentDescription = "Clip: ${clip.preview}"
+            },
         shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
@@ -206,16 +218,24 @@ private fun ResultRow(
                     )
                 }
             } else if (clip.type == com.clipvault.manager.data.local.entity.ClipType.IMAGE && clip.imageUri != null) {
-                val bmp by produceState<android.graphics.Bitmap?>(initialValue = null, clip.imageUri) {
+                val density = LocalDensity.current.density
+                val reqWidth = (360 * density).toInt()
+                val reqHeight = (96 * density).toInt()
+                val bmp by produceState<android.graphics.Bitmap?>(
+                    initialValue = null,
+                    clip.imageUri, reqWidth, reqHeight
+                ) {
                     value = withContext(kotlinx.coroutines.Dispatchers.Default) {
-                        runCatching { decodeSampled(clip.imageUri!!, 800, 600) }.getOrNull()
+                        clip.imageUri?.let { uri ->
+                            runCatching { ImageCopier.decodeBitmapSampled(uri, reqWidth, reqHeight) }.getOrNull()
+                        }
                     }
                 }
                 val bitmap = bmp
                 if (bitmap != null) {
                     androidx.compose.foundation.Image(
                         bitmap = bitmap.asImageBitmap(),
-                        contentDescription = "Image clip",
+                        contentDescription = "Image clip, copied ${formatTime(clip.createdAt)}",
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(96.dp)
@@ -225,7 +245,9 @@ private fun ResultRow(
                 }
             } else {
                 Text(
-                    text = highlightText(clip.content, highlight, primaryColor),
+                    text = remember(clip.content, highlight, primaryColor) {
+                        highlightText(clip.content, highlight, primaryColor)
+                    },
                     style = MaterialTheme.typography.bodyMedium,
                     maxLines = 6
                 )
@@ -253,35 +275,6 @@ private fun ResultRow(
             }
         }
     }
-}
-
-private fun formatTime(ts: Long): String {
-    val now = System.currentTimeMillis()
-    val diff = now - ts
-    return when {
-        diff < 60_000 -> "just now"
-        diff < 3_600_000 -> "${diff / 60_000}m ago"
-        diff < 86_400_000 -> "${diff / 3_600_000}h ago"
-        diff < 7 * 86_400_000 -> "${diff / 86_400_000}d ago"
-        else -> java.text.DateFormat.getDateInstance(java.text.DateFormat.SHORT)
-            .format(java.util.Date(ts))
-    }
-}
-
-private fun decodeSampled(path: String, reqWidth: Int, reqHeight: Int): android.graphics.Bitmap? {
-    val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    android.graphics.BitmapFactory.decodeFile(path, bounds)
-    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
-    var sample = 1
-    while (bounds.outWidth / (sample * 2) >= reqWidth &&
-        bounds.outHeight / (sample * 2) >= reqHeight
-    ) {
-        sample *= 2
-    }
-    return android.graphics.BitmapFactory.decodeFile(
-        path,
-        android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
-    )
 }
 
 @Composable

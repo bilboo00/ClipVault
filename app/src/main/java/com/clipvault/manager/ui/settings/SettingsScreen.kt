@@ -68,7 +68,6 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -80,10 +79,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.clipvault.manager.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -107,7 +110,7 @@ fun SettingsScreen(
     onNavigate: (String) -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
-    val state by viewModel.state.collectAsState()
+    val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     var showClearDialog by remember { mutableStateOf(false) }
@@ -119,6 +122,7 @@ fun SettingsScreen(
     var showExportFormatSheet by remember { mutableStateOf(false) }
     var selectedExportFormat by remember { mutableStateOf(com.clipvault.manager.data.export.ExportFormat.JSON) }
     var exportMessage by remember { mutableStateOf<String?>(null) }
+    var isExporting by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
 
     val exportLauncher = rememberLauncherForActivityResult(
@@ -126,6 +130,7 @@ fun SettingsScreen(
     ) { uri ->
         if (uri != null) {
             coroutineScope.launch {
+                isExporting = true
                 try {
                     val clips = viewModel.exportAllClips()
                     val content = com.clipvault.manager.data.export.ClipExporter.export(clips, selectedExportFormat)
@@ -137,6 +142,8 @@ fun SettingsScreen(
                     exportMessage = "Exported ${clips.size} clips as ${selectedExportFormat.extension.uppercase()}"
                 } catch (e: Exception) {
                     exportMessage = "Export failed: ${e.message}"
+                } finally {
+                    isExporting = false
                 }
             }
         }
@@ -324,9 +331,26 @@ fun SettingsScreen(
                         title = "Export history",
                         subtitle = "Save all clips as ${selectedExportFormat.extension.uppercase()}.",
                         onClick = {
-                            showExportFormatSheet = true
+                            if (!isExporting) showExportFormatSheet = true
                         }
                     )
+                    if (isExporting) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            androidx.compose.material3.CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(Modifier.width(10.dp))
+                            Text(
+                                "Exporting…",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                     SettingsDivider()
                     ChevronRow(
                         accent = Green,
@@ -335,6 +359,14 @@ fun SettingsScreen(
                         subtitle = "Restore clips from a JSON backup.",
                         onClick = { importLauncher.launch(arrayOf("application/json")) }
                     )
+                    if (exportMessage != null) {
+                        Text(
+                            text = exportMessage!!,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        )
+                    }
                 }
             }
 
@@ -452,7 +484,7 @@ fun SettingsScreen(
     }
 
     if (showDuplicatesDialog) {
-        val duplicates by viewModel.duplicates.collectAsState()
+        val duplicates by viewModel.duplicates.collectAsStateWithLifecycle()
         LaunchedEffect(showDuplicatesDialog) {
             if (showDuplicatesDialog) viewModel.refreshDuplicates()
         }
@@ -528,6 +560,7 @@ fun SettingsScreen(
             selected = selectedExportFormat,
             onDismiss = { showExportFormatSheet = false },
             onSelect = { format ->
+                if (isExporting) return@ExportFormatPickerSheet
                 selectedExportFormat = format
                 showExportFormatSheet = false
                 val timestamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US)
@@ -594,6 +627,7 @@ private fun ToggleRow(
     Row(
         modifier = Modifier
             .clickable { onCheckedChange(!checked) }
+            .semantics { role = Role.Button }
             .padding(horizontal = 16.dp, vertical = 14.dp)
             .fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
@@ -631,6 +665,7 @@ private fun ChevronRow(
     val clickableModifier = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier
     Row(
         modifier = clickableModifier
+            .semantics { role = Role.Button }
             .padding(horizontal = 16.dp, vertical = 14.dp)
             .fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
@@ -777,6 +812,7 @@ private fun SheetOption(label: String, selected: Boolean, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .clickable(onClick = onClick)
+            .semantics { role = Role.Button }
             .fillMaxWidth()
             .padding(horizontal = 24.dp, vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically

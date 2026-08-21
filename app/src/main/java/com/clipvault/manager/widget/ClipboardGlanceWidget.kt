@@ -210,14 +210,10 @@ class ClipboardGlanceWidget : GlanceAppWidget() {
     // ── Data helpers ─────────────────────────────────────────────────────────
 
     private suspend fun readClips(context: Context): List<ClipEntity> {
-        var db: ClipDatabase? = null
         return try {
-            db = buildDatabase(context)
-            db.clipDao().observeAll().first().take(8)
+            widgetDatabase(context).clipDao().observeAll().first().take(8)
         } catch (_: Exception) {
             emptyList()
-        } finally {
-            db?.close()
         }
     }
 
@@ -228,17 +224,6 @@ class ClipboardGlanceWidget : GlanceAppWidget() {
         } catch (_: Exception) {
             false
         }
-
-    private fun buildDatabase(context: Context): ClipDatabase =
-        androidx.room.Room.databaseBuilder(
-            context.applicationContext,
-            ClipDatabase::class.java,
-            "clipboard.db"
-        )
-            .addMigrations(*ClipDatabase.MIGRATIONS)
-            .fallbackToDestructiveMigration()
-            .allowMainThreadQueries()
-            .build()
 
     companion object {
         val CLIP_ID_KEY = ActionParameters.Key<Long>("clip_id")
@@ -255,9 +240,40 @@ class CopyClipAction : ActionCallback {
         parameters: ActionParameters
     ) {
         val clipId = parameters[ClipboardGlanceWidget.CLIP_ID_KEY] ?: return
-        var db: ClipDatabase? = null
         try {
-            db = androidx.room.Room.databaseBuilder(
+            val db = widgetDatabase(context)
+            val clip = db.clipDao().getById(clipId) ?: return
+            if (clip.isLocked) return
+            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            cm.setPrimaryClip(ClipUtils.clipDataFor(context, clip.content, clip.imageUri))
+            // Widget copies count toward use-limit expiry like in-app copies.
+            db.clipDao().incrementUseCount(clipId)
+        } catch (_: Exception) {
+        }
+    }
+}
+
+// ── Process-level database holder for the widget ─────────────────────────────
+
+/**
+ * Widget host process has its own Hilt graph (none in our case — the widget
+ * doesn't depend on the main app module), so the widget builds its own Room
+ * instance. Reusing a process-level singleton avoids reopening SQLite every
+ * time a widget refresh fires (Glance rebuilds content on every update).
+ *
+ * .allowMainThreadQueries() is required because provideGlance renders on the
+ * main thread, and .fallbackToDestructiveMigration() is acceptable because the
+ * widget rebuilds its data from the main app on next open — the main
+ * DatabaseModule owns the real schema.
+ */
+private object WidgetDatabaseHolder {
+    @Volatile
+    private var instance: ClipDatabase? = null
+
+    fun get(context: Context): ClipDatabase {
+        instance?.let { return it }
+        return synchronized(this) {
+            instance ?: androidx.room.Room.databaseBuilder(
                 context.applicationContext,
                 ClipDatabase::class.java,
                 "clipboard.db"
@@ -266,18 +282,12 @@ class CopyClipAction : ActionCallback {
                 .fallbackToDestructiveMigration()
                 .allowMainThreadQueries()
                 .build()
-            val clip = db.clipDao().getById(clipId) ?: return
-            if (clip.isLocked) return
-            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            cm.setPrimaryClip(ClipUtils.clipDataFor(context, clip.content, clip.imageUri))
-            // Widget copies count toward use-limit expiry like in-app copies.
-            db.clipDao().incrementUseCount(clipId)
-        } catch (_: Exception) {
-        } finally {
-            db?.close()
+                .also { instance = it }
         }
     }
 }
+
+private fun widgetDatabase(context: Context): ClipDatabase = WidgetDatabaseHolder.get(context)
 
 // ── Receiver ─────────────────────────────────────────────────────────────────
 

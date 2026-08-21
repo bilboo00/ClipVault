@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -41,36 +42,44 @@ class OnboardingViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             settings.monitoringEnabled.first().let { enabled ->
-                _state.value = _state.value.copy(monitoringOn = enabled)
+                _state.update { it.copy(monitoringOn = enabled) }
             }
         }
-        // Poll permission state so the UI updates when user returns from Settings
+        // Poll permission state so the UI updates when user returns from Settings.
+        // 2 s cadence (was 800 ms) cuts binder round-trips; skip ticks on pages
+        // that don't show permission state (Welcome / BackgroundService).
         viewModelScope.launch {
             while (isActive) {
-                refreshPermissions()
-                delay(800)
+                if (_state.value.currentPage >= PERMISSION_PAGE_START) {
+                    refreshPermissions()
+                }
+                delay(PERMISSION_POLL_INTERVAL_MS)
             }
         }
     }
 
     private fun refreshPermissions() {
-        _state.value = _state.value.copy(
-            accessibilityGranted = isAccessibilityEnabled(),
-            overlayGranted = isOverlayGranted()
-        )
+        _state.update {
+            it.copy(
+                accessibilityGranted = isAccessibilityEnabled(),
+                overlayGranted = isOverlayGranted()
+            )
+        }
     }
 
     fun next() {
-        val s = _state.value
-        if (s.currentPage < s.totalPages - 1) {
-            _state.value = s.copy(currentPage = s.currentPage + 1)
+        _state.update { current ->
+            if (current.currentPage < current.totalPages - 1)
+                current.copy(currentPage = current.currentPage + 1)
+            else current
         }
     }
 
     fun previous() {
-        val s = _state.value
-        if (s.currentPage > 0) {
-            _state.value = s.copy(currentPage = s.currentPage - 1)
+        _state.update { current ->
+            if (current.currentPage > 0)
+                current.copy(currentPage = current.currentPage - 1)
+            else current
         }
     }
 
@@ -109,4 +118,12 @@ class OnboardingViewModel @Inject constructor(
 
     private fun isOverlayGranted(): Boolean =
         Settings.canDrawOverlays(context)
+
+    companion object {
+        /** Pages 0 (Welcome) and 1 (BackgroundService) don't show permission state. */
+        private const val PERMISSION_PAGE_START = 2
+
+        /** Polling cadence for accessibility/overlay state. */
+        private const val PERMISSION_POLL_INTERVAL_MS = 2_000L
+    }
 }

@@ -59,10 +59,6 @@ fun SwipeableRow(
         confirmValueChange = { target ->
             when (target) {
                 SwipeToDismissBoxValue.StartToEnd -> {
-                    if (!armed) {
-                        armed = true
-                        haptics.tick()
-                    }
                     onSwipe(SwipeAction.Pin)
                     false
                 }

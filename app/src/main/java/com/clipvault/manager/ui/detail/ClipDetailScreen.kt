@@ -54,7 +54,6 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -63,6 +62,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
@@ -80,8 +82,7 @@ import com.clipvault.manager.ui.components.StackedSnackbarHost
 import com.clipvault.manager.ui.components.TypeBadge
 import com.clipvault.manager.ui.components.rememberStackedSnackbarHostState
 import com.clipvault.manager.util.ClipUtils
-import java.text.DateFormat
-import java.util.Date
+import com.clipvault.manager.util.rememberDateTime
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -95,6 +96,7 @@ fun ClipDetailScreen(
     val context = LocalContext.current
     val haptics = rememberHaptics()
     val snackbarHostState = rememberStackedSnackbarHostState()
+    val formatDate = rememberDateTime()
     var copied by remember { mutableStateOf(false) }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
@@ -366,13 +368,17 @@ fun ClipDetailScreen(
             DetailMetaRow(label = "Characters", value = "${clip.content.length}")
             DetailMetaRow(
                 label = "Words",
-                value = "${clip.content.trim().split(Regex("\\s+")).count { it.isNotEmpty() }}"
+                value = remember(clip.content) {
+                    clip.content.trim().split(Regex("\\s+")).count { it.isNotEmpty() }.toString()
+                }
             )
             if (clip.sourceLabel != null) {
                 DetailMetaRow(label = "Source", value = clip.sourceLabel)
             }
-            val assigned = state.tags.filter { it.id in state.tagIds }.map { it.name } +
-                state.collections.filter { it.id in state.collectionIds }.map { it.name }
+            val assigned = remember(state.tagIds, state.tags, state.collectionIds, state.collections) {
+                state.tags.filter { it.id in state.tagIds }.map { it.name } +
+                    state.collections.filter { it.id in state.collectionIds }.map { it.name }
+            }
             if (assigned.isNotEmpty()) {
                 DetailMetaRow(label = "Organized", value = assigned.joinToString(", "))
             }
@@ -733,6 +739,7 @@ private fun TransformationBottomSheet(
                                 }
                             }
                         }
+                        .semantics { role = Role.Button }
                         .background(
                             if (isSelected) MaterialTheme.colorScheme.primaryContainer
                             else MaterialTheme.colorScheme.surface
@@ -854,7 +861,8 @@ private fun TempClipRow(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onPick),
+            .clickable(onClick = onPick)
+            .semantics { role = Role.Button },
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant
@@ -994,6 +1002,3 @@ private fun formatRemaining(expiresAt: Long, now: Long): String {
         else -> "${minutes / (24 * 60)}d"
     }
 }
-
-private fun formatDate(ts: Long): String =
-    DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(ts))

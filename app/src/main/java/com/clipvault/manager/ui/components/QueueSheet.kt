@@ -93,8 +93,7 @@ fun QueueSheet(
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(
                         horizontal = 16.dp, vertical = 8.dp
                     ),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier.height(320.dp)
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     itemsIndexed(items, key = { _, item -> item.id }) { index, item ->
                         val isNext = index == currentIndex

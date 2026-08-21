@@ -49,6 +49,9 @@ class BubbleService : Service() {
     private var touchStartX = 0f
     private var touchStartY = 0f
     private var moved = false
+    private var lastUpdateX = 0
+    private var lastUpdateY = 0
+    private var density: Float = 1f
 
     override fun onCreate() {
         super.onCreate()
@@ -77,6 +80,7 @@ class BubbleService : Service() {
             // WindowManager, not attached to any view hierarchy.
             val view = LayoutInflater.from(this).inflate(R.layout.layout_bubble, null)
             windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+            density = resources.displayMetrics.density
 
             val lp = WindowManager.LayoutParams(
                 WindowManager.LayoutParams.WRAP_CONTENT,
@@ -91,6 +95,8 @@ class BubbleService : Service() {
                 x = 0
                 y = 400
             }
+            lastUpdateX = lp.x
+            lastUpdateY = lp.y
 
             view.setOnTouchListener { _, event ->
                 when (event.action) {
@@ -106,9 +112,21 @@ class BubbleService : Service() {
                         val dx = event.rawX - touchStartX
                         val dy = event.rawY - touchStartY
                         if (abs(dx) > TOUCH_SLOP || abs(dy) > TOUCH_SLOP) moved = true
-                        lp.x = (initialX + dx).toInt()
-                        lp.y = (initialY + dy).toInt()
-                        runCatching { windowManager?.updateViewLayout(view, lp) }
+                        val newX = (initialX + dx).toInt()
+                        val newY = (initialY + dy).toInt()
+                        // Throttle updateViewLayout: only push to WindowManager
+                        // when the position has actually moved by ≥ 2 dp from
+                        // the last update, otherwise every touch sample would
+                        // trigger a layout pass.
+                        val thresholdPx = UPDATE_THRESHOLD_DP * density
+                        if (abs(newX - lastUpdateX) >= thresholdPx ||
+                            abs(newY - lastUpdateY) >= thresholdPx) {
+                            lp.x = newX
+                            lp.y = newY
+                            lastUpdateX = newX
+                            lastUpdateY = newY
+                            runCatching { windowManager?.updateViewLayout(view, lp) }
+                        }
                         true
                     }
                     MotionEvent.ACTION_UP -> {
@@ -227,6 +245,7 @@ class BubbleService : Service() {
         const val NOTIF_ID = 1002
         const val ACTION_STOP = "com.clipvault.manager.BUBBLE_STOP"
         private const val TOUCH_SLOP = 10
+        private const val UPDATE_THRESHOLD_DP = 2
 
         fun start(ctx: Context) {
             try {

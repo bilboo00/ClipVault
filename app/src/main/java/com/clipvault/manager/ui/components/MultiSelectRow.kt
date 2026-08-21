@@ -33,6 +33,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -40,6 +41,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.clipvault.manager.domain.model.Clip
 import com.clipvault.manager.ui.theme.Motion
@@ -78,7 +83,11 @@ fun MultiSelectClipRow(
                     if (isMultiSelect) onSelectionToggle() else onClick()
                 },
                 onLongClick = onLongPress
-            ),
+            )
+            .semantics {
+                role = Role.Button
+                contentDescription = "Clip: ${clip.preview}"
+            },
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
             containerColor = when {
@@ -115,11 +124,13 @@ fun MultiSelectClipRow(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(
                         onClick = onDelete,
-                        modifier = Modifier.size(32.dp)
+                        modifier = Modifier
+                            .size(32.dp)
+                            .minimumInteractiveComponentSize()
                     ) {
                         Icon(
                             Icons.Outlined.Delete,
-                            contentDescription = "Delete",
+                            contentDescription = null,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(18.dp)
                         )

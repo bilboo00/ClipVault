@@ -2,10 +2,13 @@ package com.clipvault.manager.ui.settings
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.provider.Settings
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.clipvault.manager.data.export.ClipExporter
+import com.clipvault.manager.data.export.ExportFormat
 import com.clipvault.manager.data.local.dao.DuplicateGroup
 import com.clipvault.manager.data.local.entity.ClipEntity
 import com.clipvault.manager.data.preferences.SettingsManager
@@ -22,6 +25,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
@@ -156,27 +161,50 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    private val mergeMutex = Mutex()
+
     fun mergeDuplicate(keepId: Long, content: String) = viewModelScope.launch {
-        try {
-            withContext(Dispatchers.IO) {
-                repository.mergeDuplicateGroup(keepId, content)
+        mergeMutex.withLock {
+            try {
+                withContext(Dispatchers.IO) {
+                    repository.mergeDuplicateGroup(keepId, content)
+                }
+                refreshDuplicates()
+            } catch (e: Exception) {
+                Log.e(TAG, "mergeDuplicate failed", e)
             }
-            refreshDuplicates()
-        } catch (e: Exception) {
-            Log.e(TAG, "mergeDuplicate failed", e)
         }
     }
 
     suspend fun exportAllClips(): List<ClipEntity> =
         withContext(Dispatchers.IO) { repository.getAllEntities() }
 
-    suspend fun importClips(clips: List<ClipEntity>): Int = withContext(Dispatchers.IO) {
-        var count = 0
-        clips.forEach { entity ->
-            val id = repository.insertForImport(entity)
-            if (id != -1L) count++
+    /**
+     * Streams the full clip set to the app's cache directory in [format] and
+     * returns a FileProvider-backed [Uri] suitable for an
+     * [Intent.ACTION_SEND] chooser. Backed by the streaming export path so
+     * even a 50k-row history never materialises the entire document in a
+     * single String.
+     */
+    suspend fun exportAllClipsToShareUri(format: ExportFormat): Uri? =
+        withContext(Dispatchers.IO) {
+            try {
+                val clips = repository.getAllEntities()
+                ClipExporter.exportClipsStream(clips, format, context)
+            } catch (e: Exception) {
+                Log.e(TAG, "exportAllClipsToShareUri($format) failed", e)
+                null
+            }
         }
-        count
+
+    suspend fun importClips(clips: List<ClipEntity>): Int = withContext(Dispatchers.IO) {
+        try {
+            repository.restoreBulk(clips)
+            clips.size
+        } catch (e: Exception) {
+            Log.e(TAG, "importClips failed", e)
+            0
+        }
     }
 
     fun overlayPermissionIntent(): Intent =

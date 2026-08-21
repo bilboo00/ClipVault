@@ -79,8 +79,10 @@ fun AnimatedAppBackground(
     val t = if (running) phase else 0f
 
     Box(modifier = modifier.fillMaxSize()) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            drawBrandBackground(t = t, isDark = isDark, isAmoled = isAmoled)
+        if (running) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                drawBrandBackground(t = t, isDark = isDark, isAmoled = isAmoled)
+            }
         }
         content()
     }

@@ -13,10 +13,11 @@ enum class ClipType {
     tableName = "clips",
     indices = [
         Index(value = ["createdAt"]),
-        Index(value = ["isPinned"]),
-        Index(value = ["content"]),
         Index(value = ["sortOrder"]),
-        Index(value = ["isPinned", "sortOrder", "createdAt"])
+        Index(value = ["isPinned", "sortOrder", "createdAt"]),
+        Index(value = ["expiresAt", "isPinned"]),
+        Index(value = ["useLimit", "isPinned"]),
+        Index(value = ["isPinned", "createdAt"])
     ]
 )
 data class ClipEntity(
@@ -41,26 +42,4 @@ data class ClipEntity(
     val useCount: Int = 0,
     /** If true, requires biometric auth to view content. */
     val isLocked: Boolean = false
-)
-
-/** Snippets: user-defined reusable text inserts (email signatures, addresses, replies). */
-@Entity(tableName = "snippets")
-data class SnippetEntity(
-    @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    val title: String,
-    val content: String,
-    val createdAt: Long = System.currentTimeMillis(),
-    val lastUsedAt: Long? = null,
-    val useCount: Int = 0
-)
-
-/** Cached URL metadata (title, description, image, site name from Open Graph). */
-@Entity(tableName = "url_previews", primaryKeys = ["url"])
-data class UrlPreviewEntity(
-    val url: String,
-    val title: String?,
-    val description: String? = null,
-    val imageUrl: String? = null,
-    val siteName: String? = null,
-    val fetchedAt: Long = System.currentTimeMillis()
 )

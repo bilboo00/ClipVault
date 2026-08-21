@@ -4,4 +4,7 @@
          never mint a path to arbitrary files under filesDir (e.g. the
          clipboard database or settings DataStore files). -->
     <files-path name="clip_images" path="images/" />
+    <!-- cacheDir holds streaming exports from ClipExporter.exportClipsStream;
+         exposing the cache root lets FileProvider serve share-sheet URIs. -->
+    <cache-path name="exports" path="." />
 </paths>

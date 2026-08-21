@@ -1,5 +1,6 @@
 package com.clipvault.manager.data.local.dao
 
+import androidx.paging.PagingSource
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
@@ -19,10 +20,16 @@ interface ClipDao {
     fun observeAll(): Flow<List<ClipEntity>>
 
     @Query("SELECT * FROM clips ORDER BY isPinned DESC, sortOrder ASC, createdAt DESC")
+    fun pagingSourceAll(): PagingSource<Int, ClipEntity>
+
+    @Query("SELECT * FROM clips ORDER BY isPinned DESC, sortOrder ASC, createdAt DESC")
     suspend fun getAll(): List<ClipEntity>
 
     @Query("SELECT * FROM clips WHERE type = :type ORDER BY isPinned DESC, sortOrder ASC, createdAt DESC")
     fun observeByType(type: String): Flow<List<ClipEntity>>
+
+    @Query("SELECT * FROM clips WHERE type = :type ORDER BY isPinned DESC, sortOrder ASC, createdAt DESC")
+    fun pagingSourceByType(type: String): PagingSource<Int, ClipEntity>
 
     @Query("UPDATE clips SET notes = :notes WHERE id = :id")
     suspend fun setNotes(id: Long, notes: String?)
@@ -99,6 +106,9 @@ interface ClipDao {
     @RawQuery(observedEntities = [ClipEntity::class, ClipFtsEntity::class])
     fun searchFts(query: SupportSQLiteQuery): Flow<List<ClipEntity>>
 
+    @Query("SELECT clips.* FROM clips JOIN clips_fts ON clips_fts.rowid = clips.id WHERE clips_fts MATCH :ftsQuery ORDER BY isPinned DESC, sortOrder ASC, createdAt DESC LIMIT 100")
+    fun pagingSourceSearchFts(ftsQuery: String): PagingSource<Int, ClipEntity>
+
     @Query("UPDATE clips SET sortOrder = :order WHERE id = :id")
     suspend fun setSortOrder(id: Long, order: Int)
 
@@ -134,8 +144,14 @@ interface ClipDao {
     @Query("SELECT imageUri FROM clips WHERE imageUri IS NOT NULL")
     suspend fun getAllImagePaths(): List<String>
 
+    @Query("SELECT imageUri FROM clips WHERE imageUri IS NOT NULL AND isPinned = 1")
+    suspend fun getPinnedImagePaths(): List<String>
+
     @Query("UPDATE clips SET imageUri = :newPath WHERE imageUri = :oldPath")
     suspend fun updateImagePath(oldPath: String, newPath: String)
+
+    @Query("UPDATE clips SET imageUri = NULL WHERE imageUri = :path")
+    suspend fun clearImageUri(path: String): Int
 
     @Query("DELETE FROM clip_tags WHERE clipId NOT IN (SELECT id FROM clips)")
     suspend fun purgeOrphanedTagRefs(): Int
@@ -193,6 +209,9 @@ interface ClipDao {
     @Query("SELECT * FROM clips WHERE isPinned = 0")
     suspend fun getUnpinned(): List<ClipEntity>
 
+    @Query("SELECT * FROM clips WHERE isPinned = 1 ORDER BY sortOrder ASC, createdAt DESC")
+    fun observePinned(): Flow<List<ClipEntity>>
+
     @Query("SELECT * FROM clips WHERE expiresAt IS NOT NULL AND expiresAt < :now AND isPinned = 0")
     suspend fun getExpiredBefore(now: Long): List<ClipEntity>
 
@@ -205,8 +224,24 @@ interface ClipDao {
     @Query("DELETE FROM clips")
     suspend fun deleteAll()
 
-    @Query("DELETE FROM clips WHERE isPinned = 0 AND createdAt < :cutoff")
-    suspend fun deleteOlderThan(cutoff: Long)
+    @Query("DELETE FROM clips WHERE id IN (SELECT id FROM clips WHERE isPinned = 0 AND createdAt < :cutoff LIMIT 500)")
+    suspend fun deleteOlderThanBatch(cutoff: Long): Int
+
+    /**
+     * Batch the retention prune in 500-row chunks so a single statement
+     * can't hold the DB write-lock long enough to stall foreground
+     * writes; loop until the DELETE affects zero rows.
+     */
+    @Transaction
+    suspend fun deleteOlderThan(cutoff: Long): Int {
+        var total = 0
+        while (true) {
+            val deleted = deleteOlderThanBatch(cutoff)
+            total += deleted
+            if (deleted == 0) break
+        }
+        return total
+    }
 
     @Query("SELECT COUNT(*) FROM clips")
     suspend fun count(): Int

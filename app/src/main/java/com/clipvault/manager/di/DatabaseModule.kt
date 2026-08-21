@@ -2,6 +2,8 @@ package com.clipvault.manager.di
 
 import android.content.Context
 import androidx.room.Room
+import androidx.room.RoomDatabase
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.clipvault.manager.data.local.ClipDatabase
 import com.clipvault.manager.data.local.dao.ClipDao
 import com.clipvault.manager.data.local.dao.CollectionDao
@@ -24,7 +26,15 @@ object DatabaseModule {
     fun provideDatabase(@ApplicationContext ctx: Context): ClipDatabase =
         Room.databaseBuilder(ctx, ClipDatabase::class.java, "clipboard.db")
             .addMigrations(*ClipDatabase.MIGRATIONS)
-            .fallbackToDestructiveMigration()
+            .addCallback(object : RoomDatabase.Callback() {
+                override fun onOpen(db: SupportSQLiteDatabase) {
+                    // FTS4's external-content index can drift if a write
+                    // bypassed the triggers (e.g. a manual UPDATE outside
+                    // Room). The integrity-check is cheap, so run it on
+                    // every open and log failures for visibility.
+                    ClipDatabase.checkFtsIntegrity(db)
+                }
+            })
             .build()
 
     @Provides

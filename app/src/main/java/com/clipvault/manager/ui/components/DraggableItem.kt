@@ -22,6 +22,7 @@ fun <T : Any> Modifier.draggableItem(
     items: SnapshotStateList<T>,
     equalityOf: (T) -> Any? = { (it as? WithId)?.id },
     onMove: (itemId: Any, fromIndex: Int, toIndex: Int) -> Unit = { _, _, _ -> },
+    onDragStart: () -> Unit = {},
     onDragEnd: () -> Unit = {}
 ): Modifier = this.pointerInput(itemId) {
     var startIndex = -1
@@ -35,6 +36,7 @@ fun <T : Any> Modifier.draggableItem(
             initialPointerY = offset.y
             lastPointerY = offset.y
             totalDeltaY = 0f
+            onDragStart()
         },
         onDrag = { change, _ ->
             val currentY = change.position.y

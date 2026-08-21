@@ -3,6 +3,9 @@ package com.clipvault.manager.ui.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.paging.PagingData
+import androidx.paging.cachedIn
+import androidx.paging.filter
 import com.clipvault.manager.data.local.entity.ClipEntity
 import com.clipvault.manager.data.local.entity.ClipType
 import com.clipvault.manager.data.preferences.SettingsManager
@@ -11,21 +14,28 @@ import com.clipvault.manager.data.repository.UrlPreviewRepository
 import com.clipvault.manager.domain.PasteQueueManager
 import com.clipvault.manager.domain.model.Clip
 import com.clipvault.manager.service.ClipboardMonitorService
+import android.content.ClipboardManager
+import android.content.Context
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
-import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.async
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -44,7 +54,6 @@ sealed interface HomeEvent {
 }
 
 data class HomeUiState(
-    val clips: List<Clip> = emptyList(),
     val justCopiedForId: Long? = null,
     val savingNow: Boolean = false,
     val multiSelectMode: Boolean = false,
@@ -53,7 +62,10 @@ data class HomeUiState(
     val activeFilter: ClipType? = null,
     val favoritesOnly: Boolean = false,
     val queueItems: List<ClipEntity> = emptyList(),
-    val queueIndex: Int = 0
+    val queueIndex: Int = 0,
+    val pinnedClips: List<Clip> = emptyList(),
+    val totalCount: Int = 0,
+    val loadedCount: Int = 0
 )
 
 private data class SelectionMeta(
@@ -64,9 +76,11 @@ private data class SelectionMeta(
     val monitoring: Boolean
 )
 
-private data class QueueMeta(
+private data class QueueAndPinned(
     val items: List<ClipEntity>,
-    val index: Int
+    val index: Int,
+    val pinned: List<Clip>,
+    val total: Int
 )
 
 @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
@@ -87,8 +101,8 @@ class HomeViewModel @Inject constructor(
     private val activeFilter = MutableStateFlow<ClipType?>(null)
     private val favoritesOnly = MutableStateFlow(false)
 
-    private val _events = Channel<HomeEvent>(Channel.BUFFERED)
-    val events: Flow<HomeEvent> = _events.receiveAsFlow()
+    private val _events = MutableSharedFlow<HomeEvent>(extraBufferCapacity = 8, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+    val events: SharedFlow<HomeEvent> = _events.asSharedFlow()
 
     // ── URL preview titles ───────────────────────────────────────────
     // SnapshotStateMap keyed by clip id: writes invalidate only the rows that
@@ -97,20 +111,28 @@ class HomeViewModel @Inject constructor(
     private val titleCache = ConcurrentHashMap<String, String?>()
     val titleMap = mutableStateMapOf<Long, String?>()
 
+    // In-flight fetches shared across concurrent callers so N clips with the
+    // same URL scrolling into view together coalesce into a single HTTP+DB pass
+    // (the old containsKey-then-launch TOCTOU launched one coroutine per call).
+    private val titleFetchInFlight = ConcurrentHashMap<String, Deferred<String?>>()
+
     /** Fetch a URL's page title in the background (cached in-memory + DB). */
     fun fetchUrlTitle(clipId: Long, url: String) {
         if (titleCache.containsKey(url)) {
             titleMap[clipId] = titleCache[url]
             return
         }
-        titleCache[url] = null
         viewModelScope.launch {
-            val title = withContext(Dispatchers.IO) {
-                urlPreviewRepository.getCached(url)
-                    ?: urlPreviewRepository.refresh(url)
+            val deferred = titleFetchInFlight.getOrPut(url) {
+                async(Dispatchers.IO) {
+                    urlPreviewRepository.getCached(url)
+                        ?: urlPreviewRepository.refresh(url)
+                }
             }
+            val title = deferred.await()
             titleCache[url] = title
             titleMap[clipId] = title
+            titleFetchInFlight.remove(url)
         }
     }
 
@@ -126,14 +148,37 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-     val state: StateFlow<HomeUiState> = combine(
-        query.debounce(150).flatMapLatest { q ->
-            if (q.length >= 2) repository.search(q)
-            else activeFilter.flatMapLatest { filter ->
-                if (filter != null) repository.observeByType(filter)
-                else repository.observeAll()
-            }
-        },
+    /**
+     * Paged stream of the history list. Built from a [combine] over the three
+     * inputs the user can change (search query, type filter, favorites toggle)
+     * so any of them invalidates the PagingSource and triggers a fresh window;
+     * `cachedIn(viewModelScope)` keeps the loaded pages alive across config
+     * changes. The clips themselves are NOT in [HomeUiState] — they're consumed
+     * directly by the Composable via [collectAsLazyPagingItems].
+     */
+    @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
+    val clipsFlow: Flow<PagingData<Clip>> = combine(
+        query.debounce(150),
+        activeFilter,
+        favoritesOnly
+    ) { q, filter, fav ->
+        Triple(q, filter, fav)
+    }.flatMapLatest { (q, filter, fav) ->
+        val source: Flow<PagingData<Clip>> = when {
+            q.length >= 2 -> repository.pagingSearch(q)
+            filter != null -> repository.pagingByType(filter)
+            else -> repository.pagingAll()
+        }
+        source.map { paging -> if (fav) paging.filter { it.isFavorite } else paging }
+    }.cachedIn(viewModelScope)
+
+    private val loadedIds = MutableStateFlow<Set<Long>>(emptySet())
+
+    /** Tracks the ids the Composable has currently loaded from the paged stream
+     *  so multi-select "Select all" / "X of Y" reflects what the user can see. */
+    fun setLoadedIds(ids: Set<Long>) { loadedIds.value = ids }
+
+    val state: StateFlow<HomeUiState> = combine(
         combine(
             justCopied,
             saving,
@@ -145,12 +190,17 @@ class HomeViewModel @Inject constructor(
         },
         activeFilter,
         favoritesOnly,
-        combine(queueManager.items, queueManager.currentIndex) { items, index ->
-            QueueMeta(items, index)
-        }
-    ) { clips, meta, filter, favOnly, queue ->
+        combine(
+            queueManager.items,
+            queueManager.currentIndex,
+            repository.observePinned(),
+            repository.observeCount()
+        ) { items, index, pinned, total ->
+            QueueAndPinned(items, index, pinned, total)
+        },
+        loadedIds
+    ) { meta, filter, favOnly, queueAndPinned, loaded ->
         HomeUiState(
-            clips = if (favOnly) clips.filter { it.isFavorite } else clips,
             justCopiedForId = meta.justCopied,
             savingNow = meta.saving,
             multiSelectMode = meta.multiSelect,
@@ -158,8 +208,11 @@ class HomeViewModel @Inject constructor(
             monitoringActive = meta.monitoring,
             activeFilter = filter,
             favoritesOnly = favOnly,
-            queueItems = queue.items,
-            queueIndex = queue.index
+            queueItems = queueAndPinned.items,
+            queueIndex = queueAndPinned.index,
+            pinnedClips = queueAndPinned.pinned,
+            totalCount = queueAndPinned.total,
+            loadedCount = loaded.size
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeUiState())
 
@@ -196,13 +249,13 @@ class HomeViewModel @Inject constructor(
     fun togglePin(clip: Clip) = viewModelScope.launch {
         val nowPinned = !clip.isPinned
         repository.togglePin(clip.id, nowPinned)
-        _events.send(HomeEvent.ToggledPin(nowPinned))
+        _events.emit(HomeEvent.ToggledPin(nowPinned))
     }
 
     fun delete(clip: Clip) = viewModelScope.launch {
         val entity = toEntity(clip)
         repository.delete(clip.id)
-        _events.send(HomeEvent.Deleted(entity))
+        _events.emit(HomeEvent.Deleted(entity))
     }
 
     fun undoDelete(entity: ClipEntity) = viewModelScope.launch {
@@ -211,7 +264,7 @@ class HomeViewModel @Inject constructor(
 
     fun flashCopied(id: Long) = viewModelScope.launch {
         justCopied.value = id
-        _events.send(HomeEvent.Copied(id))
+        _events.emit(HomeEvent.Copied(id))
         delay(1400)
         if (justCopied.value == id) justCopied.value = null
     }
@@ -219,7 +272,28 @@ class HomeViewModel @Inject constructor(
     fun saveCurrentClipboard(content: String) = viewModelScope.launch {
         saving.value = true
         val id = repository.saveIfNew(content, sourceLabel = "fab")
-        _events.send(HomeEvent.SavedNew(id != null))
+        _events.emit(HomeEvent.SavedNew(id != null))
+        delay(400)
+        saving.value = false
+    }
+
+    /**
+     * Read the system clipboard off the main thread, save it, and emit the usual
+     * SavedNew event. Used by the Save FAB so the click handler never blocks
+     * waiting on `ClipboardManager#primaryClip` / `coerceToText`.
+     */
+    suspend fun saveCurrentClipboardNow() {
+        saving.value = true
+        val content = withContext(Dispatchers.IO) {
+            try {
+                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                cm.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
+            } catch (_: SecurityException) {
+                ""
+            }
+        }
+        val id = repository.saveIfNew(content, sourceLabel = "fab")
+        _events.emit(HomeEvent.SavedNew(id != null))
         delay(400)
         saving.value = false
     }
@@ -246,7 +320,7 @@ class HomeViewModel @Inject constructor(
     }
 
     fun selectAll() {
-        selectedIds.value = state.value.clips.map { it.id }.toSet()
+        selectedIds.value = loadedIds.value
     }
 
     fun clearSelection() {
@@ -266,7 +340,7 @@ class HomeViewModel @Inject constructor(
         // the pin/unpin direction.
         val anyUnpinned = repository.getByIds(ids).any { !it.isPinned }
         repository.bulkSetPinned(ids, anyUnpinned)
-        _events.send(HomeEvent.BulkPinned(ids.size))
+        _events.emit(HomeEvent.BulkPinned(ids.size))
         exitMultiSelect()
     }
 
@@ -275,7 +349,7 @@ class HomeViewModel @Inject constructor(
         if (ids.isEmpty()) return@launch
         val entities = repository.getByIds(ids)
         repository.bulkDelete(ids)
-        _events.send(HomeEvent.BulkDeleted(entities))
+        _events.emit(HomeEvent.BulkDeleted(entities))
         exitMultiSelect()
     }
 
@@ -299,7 +373,7 @@ class HomeViewModel @Inject constructor(
         settings.setMonitoring(!now)
         if (!now) ClipboardMonitorService.start(context)
         else ClipboardMonitorService.stop(context)
-        _events.send(if (now) HomeEvent.MonitoringPaused else HomeEvent.MonitoringResumed)
+        _events.emit(if (now) HomeEvent.MonitoringPaused else HomeEvent.MonitoringResumed)
     }
 
     private fun toEntity(clip: Clip) = ClipEntity(
