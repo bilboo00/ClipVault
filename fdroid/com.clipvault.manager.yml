@@ -14,7 +14,7 @@ Binaries: https://github.com/bilboo00/ClipVault/releases/download/v%v/app-releas
 Builds:
   - versionName: 1.2.0
     versionCode: 4
-    commit: cc194cb
+    commit: eff73c6
     subdir: .
     gradle:
       - :app:assembleRelease
