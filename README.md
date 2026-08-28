@@ -88,11 +88,17 @@ cd ClipVault
 ./gradlew :app:bundleRelease
 ```
 
-> **Note:** `assembleRelease`/`bundleRelease` are only signed if `local.properties`
-> defines the keystore (`CLIPVAULT_STORE_FILE`, `CLIPVAULT_STORE_PASSWORD`,
-> `CLIPVAULT_KEY_ALIAS`, `CLIPVAULT_KEY_PASSWORD`). Without them, the build
-> produces an unsigned APK silently. The APKs attached to GitHub Releases are
-> signed with the project release key.
+> **Note:** `assembleRelease`/`bundleRelease` are signed with the project
+> release key when `local.properties` defines the keystore
+> (`CLIPVAULT_STORE_FILE`, `CLIPVAULT_STORE_PASSWORD`, `CLIPVAULT_KEY_ALIAS`,
+> `CLIPVAULT_KEY_PASSWORD`). When no keystore is configured locally — for
+> example when building just to inspect a release AAB before you have
+> upload credentials — the build falls back to signing with the debug key so
+> the APK can still be installed for testing. Pass `-Pclipvault.debugSign=true`
+> to force the debug-key fallback even when a release keystore is configured
+> (useful for installing a release APK over a debug build without wiping app
+> data). The APKs attached to GitHub Releases are always signed with the
+> project release key by CI.
 
 ## Architecture
 
