@@ -154,23 +154,6 @@ When you're ready to send a pull request:
 3. Match the existing code style (Kotlin official + Compose conventions)
 4. Test on a device or emulator running Android 8.0+
 
-## Roadmap
-
-- [x] Tags & collections
-- [x] Text transformations
-- [x] Paste queue
-- [x] Clip notes
-- [x] Enhanced link previews
-- [x] Share-to-ClipVault
-- [x] Deep linking
-- [x] Temporary clips
-- [x] Biometric lock
-- [x] Duplicate detection
-- [x] Export formats
-- [ ] Cloud sync (opt-in, E2E encrypted)
-- [ ] Cross-device clipboard via LAN
-- [ ] Wear OS companion
-
 ## License
 
 Released under the [MIT License](LICENSE).
