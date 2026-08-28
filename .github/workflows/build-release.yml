@@ -11,6 +11,14 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      # Pulled in as env so step-level `if:` and bash scripts can reference
+      # them — directly inlining `${{ secrets.X }}` inside `if:` is rejected
+      # by the current workflow parser (Unrecognized named-value: 'secrets').
+      KEYSTORE_B64: ${{ secrets.CLIPVAULT_KEYSTORE_BASE64 }}
+      STORE_PASSWORD: ${{ secrets.CLIPVAULT_STORE_PASSWORD }}
+      KEY_ALIAS: ${{ secrets.CLIPVAULT_KEY_ALIAS }}
+      KEY_PASSWORD: ${{ secrets.CLIPVAULT_KEY_PASSWORD }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -21,27 +29,24 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-
-      - name: Configure release signing (optional)
+      - name: Configure release signing
         shell: bash
         run: |
-          if [ -n "${{ secrets.CLIPVAULT_KEYSTORE_BASE64 }}" ]; then
-            echo "${{ secrets.CLIPVAULT_KEYSTORE_BASE64 }}" | base64 -d > keystore.jks
-            printf '%s\n' \
-              'CLIPVAULT_STORE_FILE=keystore.jks' \
-              'CLIPVAULT_STORE_PASSWORD=${{ secrets.CLIPVAULT_STORE_PASSWORD }}' \
-              'CLIPVAULT_KEY_ALIAS=${{ secrets.CLIPVAULT_KEY_ALIAS }}' \
-              'CLIPVAULT_KEY_PASSWORD=${{ secrets.CLIPVAULT_KEY_PASSWORD }}' \
-              > local.properties
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > keystore.jks
+            {
+              printf 'CLIPVAULT_STORE_FILE=keystore.jks\n'
+              printf 'CLIPVAULT_STORE_PASSWORD=%s\n' "$STORE_PASSWORD"
+              printf 'CLIPVAULT_KEY_ALIAS=%s\n' "$KEY_ALIAS"
+              printf 'CLIPVAULT_KEY_PASSWORD=%s\n' "$KEY_PASSWORD"
+            } > local.properties
           fi
 
       - name: Build release APK
         run: ./gradlew :app:assembleRelease --no-daemon
 
       - name: Verify APK signature
-        if: ${{ secrets.CLIPVAULT_KEYSTORE_BASE64 != '' }}
+        if: env.KEYSTORE_B64 != ''
         run: |
           APKSIGNER="$ANDROID_HOME/build-tools/$(ls $ANDROID_HOME/build-tools | sort -V | tail -1)/apksigner"
           "$APKSIGNER" verify app/build/outputs/apk/release/app-release.apk
