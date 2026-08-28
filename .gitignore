@@ -21,3 +21,6 @@ store_assets/*.py
 # Local agent docs (not for public repo)
 AGENTS.md
 GEMINI.md
+
+# Local QA/debugging artifacts (adb captures, traces, screenshots, helpers)
+logs/

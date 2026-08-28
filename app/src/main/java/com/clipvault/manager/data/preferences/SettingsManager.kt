@@ -15,6 +15,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -42,6 +43,18 @@ class SettingsManager @Inject constructor(
         ds.data.map { it[KEY_MONITORING] ?: true }.distinctUntilChanged()
             .flowOn(Dispatchers.IO)
             .stateIn(scope, SharingStarted.WhileSubscribed(5_000), true)
+
+    /**
+     * Suspend helper that returns the actual persisted value of
+     * [monitoringEnabled] by reading DataStore directly. Unlike
+     * `monitoringEnabled.first()` — which would return the StateFlow's
+     * initial value without ever subscribing — this goes through the
+     * underlying `ds.data` flow so callers that gate startup work
+     * (e.g. starting the foreground clipboard service) on the real
+     * preference aren't surprised by a stale default.
+     */
+    suspend fun observeMonitoringEnabledRaw(): Boolean =
+        ds.data.first()[KEY_MONITORING] ?: true
 
     val maxHistoryDays: StateFlow<Int> =
         ds.data.map { it[KEY_RETENTION_DAYS] ?: 30 }.distinctUntilChanged()

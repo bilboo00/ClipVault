@@ -28,9 +28,18 @@ class ClipboardApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // Install before anything else can throw — writes exact stack traces
+        // to filesDir/crash_reports so crashes can be copied out of Settings
+        // without needing adb attached.
+        com.clipvault.manager.util.CrashReporter.install(this)
         appScope.launch {
             try {
-                val enabled = settings.monitoringEnabled.first()
+                // Use the dataStore flow (not the StateFlow's `first()`, which
+                // returns the initial value without ever reading DataStore) so
+                // the actual persisted preference — `false` when the user has
+                // disabled monitoring — is honoured here. Otherwise the service
+                // would be force-started even when the user opted out.
+                val enabled = settings.observeMonitoringEnabledRaw()
                 if (enabled) ClipboardMonitorService.start(this@ClipboardApp)
             } catch (_: Exception) {
                 // Never let DataStore / service-start failures crash the app

@@ -46,21 +46,37 @@ class SettingsViewModel @Inject constructor(
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
+    /**
+     * Composed via two nested typed combines instead of a single 6-flow
+     * `combine` whose lambda receives `Array<Any?>`. The Array-based form
+     * forces an unchecked cast on every emission and skips the typed
+     * specialisation that the compiler applies to ≤5-flow combines, which
+     * showed up as visible jank when toggling rows because every emission
+     * re-boxed each preference value.
+     */
     val state: StateFlow<SettingsUiState> = combine(
-        settings.monitoringEnabled,
-        settings.maxHistoryDays,
-        settings.darkThemeOverride,
-        settings.bubbleEnabled,
-        settings.maskSensitiveContent,
-        settings.requireBiometric
-    ) { values ->
+        combine(
+            settings.monitoringEnabled,
+            settings.bubbleEnabled,
+            settings.requireBiometric
+        ) { monitoring, bubble, bio ->
+            Triple(monitoring, bubble, bio)
+        },
+        combine(
+            settings.maxHistoryDays,
+            settings.darkThemeOverride,
+            settings.maskSensitiveContent
+        ) { days, theme, mask ->
+            Triple(days, theme, mask)
+        }
+    ) { toggles, picker ->
         SettingsUiState(
-            monitoringEnabled = values[0] as Boolean,
-            retentionDays = values[1] as Int,
-            themeMode = values[2] as Int,
-            bubbleEnabled = values[3] as Boolean,
-            maskSensitiveContent = values[4] as Boolean,
-            requireBiometric = values[5] as Boolean
+            monitoringEnabled = toggles.first,
+            bubbleEnabled = toggles.second,
+            requireBiometric = toggles.third,
+            retentionDays = picker.first,
+            themeMode = picker.second,
+            maskSensitiveContent = picker.third
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState())
 

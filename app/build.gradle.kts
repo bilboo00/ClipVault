@@ -29,8 +29,8 @@ android {
         applicationId = "com.clipvault.manager"
         minSdk = 26
         targetSdk = 34
-        versionCode = 4
-        versionName = "1.2.0"
+        versionCode = 5
+        versionName = "1.2.1"
         vectorDrawables { useSupportLibrary = true }
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
@@ -62,9 +62,18 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            if (signingConfigs.findByName("release") != null) {
-                signingConfig = signingConfigs.getByName("release")
-            }
+            // Signing precedence:
+            //  1. `-Pclipvault.debugSign=true` → force the debug key. Local
+            //     testing of minified/release builds over an existing
+            //     debug-signed install without wiping app data.
+            //  2. A configured release keystore (CLIPVAULT_* in
+            //     local.properties) → normal release signing. AGP always
+            //     registers a bare "release" entry, so check storeFile.
+            //  3. Nothing configured → debug key fallback.
+            val forceDebugSign = project.hasProperty("clipvault.debugSign")
+            val releaseSigning = signingConfigs.findByName("release")
+                ?.takeIf { !forceDebugSign && it.storeFile != null }
+            signingConfig = releaseSigning ?: signingConfigs.getByName("debug")
         }
         debug {
             isMinifyEnabled = false

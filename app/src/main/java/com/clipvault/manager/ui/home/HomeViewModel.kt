@@ -42,6 +42,10 @@ import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 
+/** Sentinel for "URL was fetched but yielded no title" — ConcurrentHashMap
+ *  rejects null values, so negatives are cached as an empty string. */
+private const val URL_NO_TITLE = ""
+
 sealed interface HomeEvent {
     data class Copied(val clipId: Long) : HomeEvent
     data class Deleted(val clip: ClipEntity) : HomeEvent
@@ -108,7 +112,12 @@ class HomeViewModel @Inject constructor(
     // SnapshotStateMap keyed by clip id: writes invalidate only the rows that
     // read their own key, so a title arriving mid-scroll doesn't recompose the
     // whole visible list (the old whole-map StateFlow replacement did).
-    private val titleCache = ConcurrentHashMap<String, String?>()
+    //
+    // NOTE: ConcurrentHashMap forbids null values — putting one throws an
+    // immediate NPE (crash log: HomeViewModel.kt fetchUrlTitle →
+    // ConcurrentHashMap.put). Negative results ("fetched, no title") are
+    // therefore cached as [URL_NO_TITLE] and converted back to null on read.
+    private val titleCache = ConcurrentHashMap<String, String>()
     val titleMap = mutableStateMapOf<Long, String?>()
 
     // In-flight fetches shared across concurrent callers so N clips with the
@@ -119,22 +128,36 @@ class HomeViewModel @Inject constructor(
     /** Fetch a URL's page title in the background (cached in-memory + DB). */
     fun fetchUrlTitle(clipId: Long, url: String) {
         if (titleCache.containsKey(url)) {
-            titleMap[clipId] = titleCache[url]
+            titleMap[clipId] = cacheGet(url)
             return
         }
         viewModelScope.launch {
-            val deferred = titleFetchInFlight.getOrPut(url) {
-                async(Dispatchers.IO) {
-                    urlPreviewRepository.getCached(url)
-                        ?: urlPreviewRepository.refresh(url)
+            try {
+                val deferred = titleFetchInFlight.getOrPut(url) {
+                    async(Dispatchers.IO) {
+                        urlPreviewRepository.getCached(url)
+                            ?: urlPreviewRepository.refresh(url)
+                    }
                 }
+                val title = deferred.await()
+                titleCache[url] = title ?: URL_NO_TITLE
+                titleMap[clipId] = title
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Preview is best-effort by contract — a failed fetch must
+                // degrade to "no title", never take the process down.
+                // Cached as a negative so an unreachable URL isn't refetched
+                // (and re-failed) on every scroll pass this session.
+                titleCache[url] = URL_NO_TITLE
+            } finally {
+                titleFetchInFlight.remove(url)
             }
-            val title = deferred.await()
-            titleCache[url] = title
-            titleMap[clipId] = title
-            titleFetchInFlight.remove(url)
         }
     }
+
+    private fun cacheGet(url: String): String? =
+        titleCache[url]?.takeIf { it != URL_NO_TITLE }
 
     init {
         // Rebind persisted queue entities after a restart: the manager restores
@@ -282,8 +305,8 @@ class HomeViewModel @Inject constructor(
      * SavedNew event. Used by the Save FAB so the click handler never blocks
      * waiting on `ClipboardManager#primaryClip` / `coerceToText`.
      */
-    suspend fun saveCurrentClipboardNow() {
-        saving.value = true
+    suspend fun saveCurrentClipboardNow(silent: Boolean = false) {
+        if (!silent) saving.value = true
         val content = withContext(Dispatchers.IO) {
             try {
                 val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -292,10 +315,18 @@ class HomeViewModel @Inject constructor(
                 ""
             }
         }
-        val id = repository.saveIfNew(content, sourceLabel = "fab")
-        _events.emit(HomeEvent.SavedNew(id != null))
-        delay(400)
-        saving.value = false
+        // Android 10+ denies clipboard reads whenever the app isn't the
+        // focused window (system log: "Denying clipboard access … not in
+        // focus"), which silently broke background autosave. Reading here is
+        // legal because we only run while RESUMED — so every time the user
+        // opens/returns to the app, anything new on their clipboard lands in
+        // history without them touching the FAB.
+        val id = repository.saveIfNew(content, sourceLabel = if (silent) "resume" else "fab")
+        if (!silent) {
+            _events.emit(HomeEvent.SavedNew(id != null))
+            delay(400)
+            saving.value = false
+        }
     }
 
     fun deleteAll() = viewModelScope.launch { repository.deleteAllUnpinned() }

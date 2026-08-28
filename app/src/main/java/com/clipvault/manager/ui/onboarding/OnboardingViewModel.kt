@@ -41,7 +41,10 @@ class OnboardingViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            settings.monitoringEnabled.first().let { enabled ->
+            // Read the actual persisted value (not the StateFlow's
+            // initial `true`) so the toggle reflects what the user has
+            // chosen in a prior install / Settings page.
+            settings.observeMonitoringEnabledRaw().let { enabled ->
                 _state.update { it.copy(monitoringOn = enabled) }
             }
         }

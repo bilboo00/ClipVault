@@ -76,11 +76,17 @@ fun AnimatedAppBackground(
         ),
         label = "phase"
     )
-    val t = if (running) phase else 0f
 
     Box(modifier = modifier.fillMaxSize()) {
         if (running) {
             Canvas(modifier = Modifier.fillMaxSize()) {
+                // Read `phase` HERE, inside the draw lambda — a state read
+                // during the draw phase invalidates ONLY the draw pass, so
+                // this composable (and the entire `content` subtree it wraps)
+                // no longer recomposes every animation frame. Reading it in
+                // composition was rebuilding the whole screen wrapper ~60×/s
+                // and showed up as app-wide sluggishness.
+                val t = if (running) phase else 0f
                 drawBrandBackground(t = t, isDark = isDark, isAmoled = isAmoled)
             }
         }

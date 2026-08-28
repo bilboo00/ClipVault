@@ -10,6 +10,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,6 +36,7 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowForward
 import androidx.compose.material.icons.outlined.AccessibilityNew
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.BubbleChart
+import androidx.compose.material.icons.outlined.BugReport
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.DeleteForever
@@ -374,6 +376,38 @@ fun SettingsScreen(
             item { SectionHeader("About") }
             item {
                 SettingsCard {
+                    // Debug: appears only when the in-app crash reporter has
+                    // captured something. Tap copies the newest stack trace
+                    // so it can be pasted straight into a chat.
+                    var crashReports by remember {
+                        mutableStateOf(com.clipvault.manager.util.CrashReporter.pendingReports(context))
+                    }
+                    LaunchedEffect(Unit) {
+                        crashReports = com.clipvault.manager.util.CrashReporter.pendingReports(context)
+                    }
+                    if (crashReports.isNotEmpty()) {
+                        ChevronRow(
+                            accent = Red,
+                            icon = Icons.Outlined.BugReport,
+                            title = "Debug crash logs (${crashReports.size})",
+                            subtitle = "Tap to copy the newest stack trace.",
+                            onClick = {
+                                val text = com.clipvault.manager.util.CrashReporter.latestReportText(context)
+                                    ?: "No report content"
+                                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE)
+                                    as android.content.ClipboardManager
+                                cm.setPrimaryClip(
+                                    android.content.ClipData.newPlainText("ClipVault crash log", text.take(90_000))
+                                )
+                                android.widget.Toast.makeText(
+                                    context,
+                                    "Newest crash log copied — paste it to the developer",
+                                    android.widget.Toast.LENGTH_LONG
+                                ).show()
+                            }
+                        )
+                        SettingsDivider()
+                    }
                     ChevronRow(
                         accent = Slate,
                         icon = Icons.Outlined.Info,
@@ -624,10 +658,19 @@ private fun ToggleRow(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit
 ) {
+    // Use `toggleable` on the row and let the Switch react purely to the
+    // hoisted `checked` state. The previous `.clickable { onCheckedChange(!checked) }`
+    // combined with the Switch's own `onCheckedChange` could fire twice on a
+    // single tap (row click → toggle, then Switch click → toggle again),
+    // which both flipped the switch back and emitted two DataStore writes
+    // per tap — the visible cause of the "stuttery" feel on every row.
     Row(
         modifier = Modifier
-            .clickable { onCheckedChange(!checked) }
-            .semantics { role = Role.Button }
+            .toggleable(
+                value = checked,
+                onValueChange = onCheckedChange,
+                role = Role.Switch
+            )
             .padding(horizontal = 16.dp, vertical = 14.dp)
             .fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
@@ -644,7 +687,7 @@ private fun ToggleRow(
         }
         Switch(
             checked = checked,
-            onCheckedChange = onCheckedChange,
+            onCheckedChange = null,
             colors = SwitchDefaults.colors(
                 checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
                 checkedTrackColor = MaterialTheme.colorScheme.primary

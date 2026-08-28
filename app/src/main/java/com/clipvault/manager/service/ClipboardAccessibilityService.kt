@@ -51,11 +51,13 @@ class ClipboardAccessibilityService : AccessibilityService() {
         }
         // Periodically refresh the monitoring-enabled flag so we don't read
         // DataStore on every accessibility event (which can fire many times
-        // per second). SettingsManager.monitoringEnabled is a Flow<Boolean>
-        // (not StateFlow) so caching via AtomicBoolean is the lightest path.
+        // per second). Use the raw DataStore reader (not the StateFlow's
+        // `first()`, which returns the initial value without ever
+        // subscribing) so the cached flag actually reflects the persisted
+        // setting — otherwise the cache would always be `true`.
         scope.launch {
             while (isActive) {
-                runCatching { monitoringEnabledCached.set(settings.monitoringEnabled.first()) }
+                runCatching { monitoringEnabledCached.set(settings.observeMonitoringEnabledRaw()) }
                 delay(MONITORING_REFRESH_MS)
             }
         }

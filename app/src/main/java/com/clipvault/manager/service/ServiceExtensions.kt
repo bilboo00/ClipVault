@@ -27,5 +27,13 @@ fun Service.startForegroundCompat(
             // Fall through to legacy form
         }
     }
-    startForeground(id, notification)
+    try {
+        startForeground(id, notification)
+    } catch (e: Exception) {
+        // On API 29+ the 2-arg form throws MissingForegroundServiceTypeException
+        // when the service declares a foregroundServiceType. Log and swallow so
+        // the host process is never crashed by a notification-start failure —
+        // the system will kill the FGS shortly, but the app stays alive.
+        android.util.Log.w("Service", "startForeground fallback failed", e)
+    }
 }

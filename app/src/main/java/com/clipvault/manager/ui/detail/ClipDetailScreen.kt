@@ -58,6 +58,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -211,6 +212,31 @@ fun ClipDetailScreen(
 
         // Locked and not yet unlocked this session → show locked state
         if (clip.isLocked && !state.unlocked) {
+            // Auto-prompt the biometric on first composition of the locked
+            // surface so the user lands on the prompt, not on a screen that
+            // does nothing until they tap Unlock. The prompt is started only
+            // while RESUMED (androidx.biometric requires a resumed host —
+            // firing from composition crashed the process), and the flag is
+            // keyed per clip so rotation doesn't re-prompt mid-session.
+            var hasPromptedForClip by rememberSaveable(clip.id) { mutableStateOf(false) }
+            val lifecycleOwner = LocalLifecycleOwner.current
+            LaunchedEffect(clip.id) {
+                if (!hasPromptedForClip) {
+                    hasPromptedForClip = true
+                    lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                        val activity = context.findActivity()
+                        if (activity != null &&
+                            viewModel.biometricManager.canAuthenticate(activity)
+                        ) {
+                            promptUnlock(
+                                activity = activity,
+                                viewModel = viewModel,
+                                clip = clip
+                            )
+                        }
+                    }
+                }
+            }
             LockedScreen(
                 onUnlock = {
                     promptUnlock(
@@ -330,9 +356,17 @@ fun ClipDetailScreen(
                     highlight = clip.isLocked,
                     onClick = {
                         haptics.medium()
-                        if (clip.isLocked) {
+                        val activity = context.findActivity()
+                        // Both lock and unlock require the biometric prompt
+                        // when a credential is available, so the symmetric
+                        // surface matches: the lock button can't be used to
+                        // silently re-lock notes the user just unlocked, and
+                        // unlocking still gates on auth.
+                        if (activity != null &&
+                            viewModel.biometricManager.canAuthenticate(activity)
+                        ) {
                             promptUnlock(
-                                activity = context.findActivity(),
+                                activity = activity,
                                 viewModel = viewModel,
                                 clip = clip
                             )
@@ -404,11 +438,17 @@ fun ClipDetailScreen(
                 isLocked = clip.isLocked,
                 onEdit = { showNotesEditor = true },
                 onToggleLock = {
-                    if (clip.isLocked) {
-                        // Unlocking must go through the biometric prompt, not a
-                        // bare DB flip — otherwise the lock is trivially bypassed.
+                    // Both directions now route through the biometric prompt
+                    // when a credential is available, so an attacker with
+                    // physical access to an unlocked phone can't silently
+                    // re-lock notes to hide tampering (and the symmetric
+                    // "lock" path was previously unguarded by mistake).
+                    val activity = context.findActivity()
+                    if (activity != null &&
+                        viewModel.biometricManager.canAuthenticate(activity)
+                    ) {
                         promptUnlock(
-                            activity = context.findActivity(),
+                            activity = activity,
                             viewModel = viewModel,
                             clip = clip
                         )
@@ -535,12 +575,30 @@ private fun promptUnlock(
         viewModel.toggleLock(clip)
         return
     }
+    // Pick the prompt copy based on which way the toggle is going so the
+    // user understands why they're being asked to authenticate on a Lock
+    // tap as well as an Unlock tap.
+    val (title, subtitle) = if (clip.isLocked) {
+        "Unlock clip" to "Authenticate to remove this clip's lock."
+    } else {
+        "Lock clip" to "Authenticate to lock this clip's notes."
+    }
     viewModel.biometricManager.prompt(
         activity = activity,
-        title = "Unlock clip",
-        subtitle = "Authenticate to remove this clip's lock.",
+        title = title,
+        subtitle = subtitle,
         onSuccess = { viewModel.toggleLock(clip) },
-        onFailure = { /* keep locked */ }
+        onFailure = { msg ->
+            android.widget.Toast.makeText(
+                activity,
+                "Authentication failed: $msg",
+                android.widget.Toast.LENGTH_SHORT
+            ).show()
+        },
+        onCancel = {
+            // User dismissed the prompt — leave the clip in its current
+            // state, no toast spam.
+        }
     )
 }
 

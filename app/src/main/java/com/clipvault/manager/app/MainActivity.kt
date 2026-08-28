@@ -30,8 +30,10 @@ import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.fragment.app.FragmentActivity
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -128,6 +130,30 @@ class MainActivity : FragmentActivity() {
                 showOnboarding = !onboardingDone
             }
 
+            // Auto-trigger the biometric prompt when the lock screen is shown
+            // so the user doesn't have to tap "Unlock" first. The prompt is
+            // started only while the activity is RESUMED — androidx.biometric
+            // requires a resumed host, and firing from first-frame composition
+            // crashed the process on cold start. Keyed on the lock state's
+            // edge so rotation doesn't re-prompt mid-session.
+            var hasPromptedThisLock by rememberSaveable { mutableStateOf(false) }
+            LaunchedEffect(appLocked, canAuthenticate) {
+                if (appLocked && canAuthenticate && !hasPromptedThisLock) {
+                    hasPromptedThisLock = true
+                    this@MainActivity.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                        biometricManager.prompt(
+                            activity = this@MainActivity,
+                            title = "Unlock ClipVault",
+                            subtitle = "Authenticate to access your clipboard",
+                            onSuccess = { appLocked = false },
+                            onFailure = { /* keep locked; LockScreen lets user retry */ },
+                            onCancel = { /* user dismissed; keep locked */ }
+                        )
+                    }
+                }
+                if (!appLocked) hasPromptedThisLock = false
+            }
+
             ClipboardManagerTheme(themeOverride = settingsState.themeMode) {
                 if (appLocked && requireBiometric && canAuthenticate) {
                     LockScreen(
@@ -139,7 +165,17 @@ class MainActivity : FragmentActivity() {
                                 title = "Unlock ClipVault",
                                 subtitle = "Authenticate to access your clipboard",
                                 onSuccess = { appLocked = false },
-                                onFailure = { /* stay locked */ }
+                                onFailure = { msg ->
+                                    android.widget.Toast.makeText(
+                                        this@MainActivity,
+                                        "Authentication failed: $msg",
+                                        android.widget.Toast.LENGTH_SHORT
+                                    ).show()
+                                },
+                                onCancel = {
+                                    // User dismissed the prompt — stay locked,
+                                    // no toast spam.
+                                }
                             )
                         }
                     )

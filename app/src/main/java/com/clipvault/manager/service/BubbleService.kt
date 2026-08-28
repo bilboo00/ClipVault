@@ -27,6 +27,7 @@ import com.clipvault.manager.R
 import com.clipvault.manager.service.startForegroundCompat
 import com.clipvault.manager.data.repository.ClipboardRepository
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -40,7 +41,13 @@ class BubbleService : Service() {
 
     @Inject lateinit var repository: ClipboardRepository
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val scope = CoroutineScope(
+        SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler { _, e ->
+            // Best-effort by contract — an uncaught exception here (DataStore,
+            // clipboard binder) must never take the process down.
+            android.util.Log.w("BubbleService", "scope failure", e)
+        }
+    )
     private var windowManager: WindowManager? = null
     private var bubbleView: View? = null
     private var params: WindowManager.LayoutParams? = null

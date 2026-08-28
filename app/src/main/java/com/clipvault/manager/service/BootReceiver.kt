@@ -21,7 +21,9 @@ class BootReceiver : BroadcastReceiver() {
         val pending = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val enabled = settings.monitoringEnabled.first()
+                // Read the real persisted value, not the StateFlow's initial
+                // value (which is `true` regardless of the DataStore setting).
+                val enabled = settings.observeMonitoringEnabledRaw()
                 if (enabled) ClipboardMonitorService.start(context)
             } finally {
                 pending.finish()

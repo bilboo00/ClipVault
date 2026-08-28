@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.paging.LoadState
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemContentType
 import androidx.paging.compose.itemKey
@@ -166,6 +167,16 @@ fun HomeScreen(
                 haptics.heavy()
                 showClearDialog = true
             }
+        }
+    }
+
+    // Autosave-on-open: Android 10+ denies clipboard reads while we're not
+    // the focused window (the old background poll was rejected every cycle),
+    // so capture instead at the moment focus returns. Silent = no snackbar or
+    // FAB pulse; duplicates are filtered by saveIfNew.
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            viewModel.saveCurrentClipboardNow(silent = true)
         }
     }
 
@@ -340,7 +351,17 @@ fun HomeScreen(
                 )
             }
             Box(modifier = Modifier.fillMaxSize()) {
-             if (state.pinnedClips.isEmpty() && lazyClips.itemCount == 0) {
+                // Only trust "empty" once the refresh pass has finished.
+                // During the first load — and right after an insert
+                // invalidates the PagingSource (e.g. autosave-on-open) —
+                // itemCount reads 0 while data is in flight; declaring empty
+                // here flashed "Nothing copied yet" over a non-empty history
+                // until the user toggled a filter chip.
+                val refreshState = lazyClips.loadState.refresh
+                val showEmpty = state.pinnedClips.isEmpty() &&
+                    lazyClips.itemCount == 0 &&
+                    refreshState is LoadState.NotLoading
+             if (showEmpty) {
                 EmptyStateWithOrb(
                     title = "Nothing copied yet",
                     subtitle = "Copy text anywhere — it shows up here.\nShake to clear history · long-press to multi-select.",
@@ -894,7 +915,11 @@ private fun NormalClipCard(
             }
             // One-time codes get a prominent copy button
             if (clip.type == ClipType.OTP && !clip.isLocked) {
-                val code = ClipClassifier.extractOtp(clip.content)
+                // Regex extraction is not free on long contents — run it once
+                // per clip, not on every recomposition of this row.
+                val code = remember(clip.id, clip.content) {
+                    ClipClassifier.extractOtp(clip.content)
+                }
                 if (code != null) {
                     Spacer(Modifier.height(10.dp))
                     Button(

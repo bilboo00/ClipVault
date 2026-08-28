@@ -48,7 +48,6 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -84,13 +83,12 @@ fun SearchScreen(
     val context = LocalContext.current
     val haptics = rememberHaptics()
     val focusRequester = remember { FocusRequester() }
-    val keyboard = LocalSoftwareKeyboardController.current
 
-    // Auto-focus the search field + raise the keyboard on entry
-    LaunchedEffect(Unit) {
-        focusRequester.requestFocus()
-        keyboard?.show()
-    }
+    // Note: we deliberately do NOT auto-focus the search field on screen
+    // entry. Auto-focus + auto-keyboard popped the IME in front of every
+    // navigation into Search, forcing the user to dismiss it before they
+    // could browse or jump to a specific tab. The search field only
+    // receives focus when the user explicitly taps it.
 
     Scaffold(
         topBar = {

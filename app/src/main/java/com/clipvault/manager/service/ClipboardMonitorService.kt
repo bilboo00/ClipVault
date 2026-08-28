@@ -27,6 +27,7 @@ import com.clipvault.manager.data.repository.ClipboardRepository
 import com.clipvault.manager.data.preferences.SettingsManager
 import com.clipvault.manager.util.ImageCopier
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -44,7 +45,15 @@ class ClipboardMonitorService : Service() {
     @Inject lateinit var repository: ClipboardRepository
     @Inject lateinit var settingsManager: SettingsManager
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val scope = CoroutineScope(
+        SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler { _, e ->
+            // Without this handler any uncaught exception in a scope coroutine
+            // (e.g. a DataStore IOException surfacing from the settings
+            // combine below) would crash the whole process via the default
+            // handler. Capture is best-effort by contract — log and survive.
+            android.util.Log.w("ClipboardMonitor", "scope failure", e)
+        }
+    )
     private val clipboardMutex = Mutex()
     private var pollJob: kotlinx.coroutines.Job? = null
     private var lastSeen: String? = null
@@ -56,6 +65,13 @@ class ClipboardMonitorService : Service() {
     @Volatile private var maskContent = false
     @Volatile private var screenOff = false
     @Volatile private var lastPreview: String? = null
+    /** Content confirmed present in history this session — lets unchanged
+     *  polls return without touching the DB at all. */
+    @Volatile private var lastSavedConfirmed: String? = null
+
+    /** Extra delay added to the poll interval while the platform keeps
+     *  denying background clipboard reads (app not focused). */
+    @Volatile private var denialBackoffMs: Long = 0L
     private var screenReceiver: BroadcastReceiver? = null
 
     @android.annotation.SuppressLint("InlinedApi")
@@ -116,8 +132,21 @@ class ClipboardMonitorService : Service() {
         if (pollJob?.isActive != true) {
             pollJob = scope.launch {
                 while (true) {
-                    kotlinx.coroutines.delay(POLL_INTERVAL_MS)
-                    clipboardMutex.withLock { pollClipboardSafely() }
+                    kotlinx.coroutines.delay(POLL_INTERVAL_MS + denialBackoffMs)
+                    val gotSomething = clipboardMutex.withLock { pollClipboardSafely() }
+                    if (gotSomething) {
+                        denialBackoffMs = 0L
+                    } else {
+                        // Android 10+ denies background reads while the app
+                        // isn't focused ("Denying clipboard access … not in
+                        // focus" from ClipboardService). Back the futile poll
+                        // off progressively — 5s→15s→30s→60s cap — to stop
+                        // battery drain and log spam; capture now happens on
+                        // app-open instead. Reset instantly on any success.
+                        denialBackoffMs =
+                            minOf(denialBackoffMs + 10_000L, MAX_DENIAL_BACKOFF_MS)
+                                .coerceAtLeast(10_000L)
+                    }
                 }
             }
         }
@@ -129,6 +158,14 @@ class ClipboardMonitorService : Service() {
      * primaryClip access from a freshly-started foreground service can throw
      * SecurityException — we must succeed before the listener kicks in,
      * otherwise the first event would treat the stale clipboard as a new copy.
+     *
+     * Each retry attempt is treated independently: an empty/transient-null
+     * result on the first try does NOT abort the loop, otherwise a clipboard
+     * that's momentarily inaccessible at service-start would leave lastSeen
+     * un-primed forever and the very next user copy would be treated as new
+     * (correct) — but a stale-clipboard "set lastSeen = stale" race could
+     * suppress a real new copy if the listener fires before any retry has
+     * succeeded.
      */
     private fun primeLastSeenWithRetries() {
         scope.launch {
@@ -138,10 +175,12 @@ class ClipboardMonitorService : Service() {
                     if (delayMs > 0) kotlinx.coroutines.delay(delayMs)
                     val captured = try {
                         val clip = clipboardManager.primaryClip
-                        if (clip == null || clip.itemCount == 0) return@withLock
-                        val item = clip.getItemAt(0)
-                        (item.text?.toString()?.takeIf { it.isNotEmpty() }
-                            ?: item.coerceToText(this@ClipboardMonitorService)?.toString())
+                        if (clip == null || clip.itemCount == 0) null
+                        else {
+                            val item = clip.getItemAt(0)
+                            item.text?.toString()?.takeIf { it.isNotEmpty() }
+                                ?: item.coerceToText(this@ClipboardMonitorService)?.toString()
+                        }
                     } catch (_: SecurityException) {
                         null
                     } catch (_: Exception) {
@@ -152,8 +191,8 @@ class ClipboardMonitorService : Service() {
                         return@withLock
                     }
                 }
-                // Couldn't read clipboard in time — leave lastSeen as-is to avoid
-                // a false-positive save on the next listener event.
+                // Couldn't read clipboard in time — leave lastSeen as-is (null) so
+                // the first listener event captures the actual current content.
             }
         }
     }
@@ -165,10 +204,18 @@ class ClipboardMonitorService : Service() {
         pollJob = null
     }
 
-    private suspend fun pollClipboardSafely() {
+    /**
+     * Try to capture the current clipboard.
+     * @return true when a non-empty clipboard was actually READ (saved,
+     * deduped, or skipped-by-suppression — any successful read), false when
+     * access was denied/empty. Drives the adaptive backoff: on modern Android
+     * a background read is rejected while the app isn't focused, so repeated
+     * false results mean "platform says no", not "user copied nothing".
+     */
+    private suspend fun pollClipboardSafely(): Boolean {
         try {
             val clip: ClipData? = clipboardManager.primaryClip
-            if (clip == null || clip.itemCount == 0) return
+            if (clip == null || clip.itemCount == 0) return false
             val item = clip.getItemAt(0)
 
             val imageUri = item.uri?.takeIf { uri ->
@@ -186,10 +233,10 @@ class ClipboardMonitorService : Service() {
                 if (uriKey == lastImageUri) {
                     val path = lastImagePath
                     if (path != null) {
-                        if (repository.isImageSuppressed(path)) return
-                        if (now - lastVerifyAt < REVERIFY_INTERVAL_MS) return
+                        if (repository.isImageSuppressed(path)) return true
+                        if (now - lastVerifyAt < REVERIFY_INTERVAL_MS) return true
                         lastVerifyAt = now
-                        if (repository.imageExists(path)) return
+                        if (repository.imageExists(path)) return true
                     }
                 } else {
                     repository.clearDeleteSuppressions()
@@ -204,41 +251,57 @@ class ClipboardMonitorService : Service() {
                         updateNotification("Image saved")
                     }
                 }
-                return
+                return true
             }
 
             val text = withContext(Dispatchers.Default) {
                 item.text?.toString()?.takeIf { it.isNotEmpty() }
                     ?: item.coerceToText(this@ClipboardMonitorService)?.toString()
             }.orEmpty()
-            if (text.isBlank()) return
+            if (text.isBlank()) return false
+
             if (text != lastSeen) {
                 // New clipboard value — delete-suppressions for the previous
                 // content no longer apply.
                 repository.clearDeleteSuppressions()
+                lastSavedConfirmed = null
+            } else if (text == lastSavedConfirmed) {
+                // Unchanged content we've already confirmed is in history —
+                // return without ANY DB work. This keeps the periodic
+                // safety-net poll free in the steady state; previously every
+                // poll re-ran a COUNT(*) full scan on the un-indexed content
+                // column, which showed up as app-wide jank on large histories.
+                return true
             }
+
             if (text == lastSeen) {
                 // Same content as the last capture — never re-add content the
                 // user explicitly deleted while it's still on the clipboard;
                 // otherwise still verify it wasn't deleted from history, but
                 // throttle the DB query so repeated events don't fire
                 // many COUNTs.
-                if (repository.isContentSuppressed(text)) return
+                if (repository.isContentSuppressed(text)) return true
                 val now = System.currentTimeMillis()
-                if (now - lastVerifyAt < REVERIFY_INTERVAL_MS) return
+                if (now - lastVerifyAt < REVERIFY_INTERVAL_MS) return true
                 lastVerifyAt = now
-                if (repository.contentExists(text)) return
+                if (repository.contentExists(text)) {
+                    lastSavedConfirmed = text
+                    return true
+                }
             }
             val saved = repository.saveIfNew(text, sourceLabel = null)
             // Advance lastSeen even when the save was deduped, so we don't
             // re-query the DB on every event for an already-known clip.
             lastSeen = text
             if (saved != null) {
+                lastSavedConfirmed = text
                 updateNotification(text)
             }
+            return true
         } catch (_: SecurityException) {
         } catch (_: Exception) {
         }
+        return false
     }
 
     private fun buildNotification(preview: String?, paused: Boolean = false): Notification {
@@ -364,8 +427,12 @@ class ClipboardMonitorService : Service() {
 
         const val ACTION_PAUSE = "com.clipvault.manager.PAUSE"
         const val ACTION_RESUME = "com.clipvault.manager.RESUME"
+        // Listener events give instant capture; these are safety-net values
+        // only. The 2 s/5 s pair tried earlier caused constant un-indexed
+        // COUNT scans and app-wide jank — don't tighten without a fast path.
         private const val REVERIFY_INTERVAL_MS = 30_000L
         private const val POLL_INTERVAL_MS = 5_000L
+        private const val MAX_DENIAL_BACKOFF_MS = 55_000L
         private const val JOB_ID = 4101
         private const val RESTART_LATENCY_MS = 15L * 60L * 1000L
 
