@@ -19,7 +19,7 @@ Builds:
     commit: 8a5389242dcb0d0d87afc8bc0dab269bcc601cf2
     subdir: app
     gradle:
-      - :app:assembleRelease
+      - yes
 
 AllowedAPKSigningKeys: 82c5e5d658a342588786996e7cd9201daff54e700ddd286078eca840eff5fc4b
 
