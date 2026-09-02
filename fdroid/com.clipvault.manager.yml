@@ -7,8 +7,9 @@ IssueTracker: https://github.com/bilboo00/ClipVault/issues
 Changelog: https://github.com/bilboo00/ClipVault/releases
 
 Name: ClipVault
-RepoType: git
+AutoName: ClipVault
 
+RepoType: git
 Repo: https://github.com/bilboo00/ClipVault
 Binaries: https://github.com/bilboo00/ClipVault/releases/download/v%v/app-release.apk
 
@@ -20,8 +21,7 @@ Builds:
     gradle:
       - :app:assembleRelease
 
-AllowedAPKSigningKeys:
-  - 82c5e5d658a342588786996e7cd9201daff54e700ddd286078eca840eff5fc4b
+AllowedAPKSigningKeys: 82c5e5d658a342588786996e7cd9201daff54e700ddd286078eca840eff5fc4b
 
 AutoUpdateMode: Version
 UpdateCheckMode: Tags
