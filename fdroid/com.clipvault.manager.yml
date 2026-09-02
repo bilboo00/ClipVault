@@ -13,9 +13,9 @@ Repo: https://github.com/bilboo00/ClipVault
 Binaries: https://github.com/bilboo00/ClipVault/releases/download/v%v/app-release.apk
 
 Builds:
-  - versionName: 1.2.0
-    versionCode: 4
-    commit: eff73c6fadc7a5c85b5f66e17f1c68975169290a
+  - versionName: 1.2.1
+    versionCode: 5
+    commit: 8a5389242dcb0d0d87afc8bc0dab269bcc601cf2
     subdir: app
     gradle:
       - :app:assembleRelease
@@ -25,5 +25,5 @@ AllowedAPKSigningKeys:
 
 AutoUpdateMode: Version
 UpdateCheckMode: Tags
-CurrentVersion: 1.2.0
-CurrentVersionCode: 4
+CurrentVersion: 1.2.1
+CurrentVersionCode: 5
