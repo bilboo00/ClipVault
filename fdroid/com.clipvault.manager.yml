@@ -9,6 +9,9 @@ Changelog: https://github.com/bilboo00/ClipVault/releases
 Name: ClipVault
 AutoName: ClipVault
 
+AuthorName: bilboo00
+AuthorWebSite: https://github.com/bilboo00
+
 RepoType: git
 Repo: https://github.com/bilboo00/ClipVault
 Binaries: https://github.com/bilboo00/ClipVault/releases/download/v%v/app-release.apk
