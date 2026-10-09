@@ -1,6 +1,7 @@
 package com.clipvault.manager.util
 
 import android.content.ClipData
+import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
@@ -16,6 +17,28 @@ import java.io.File
  * text. Text clips fall back to plain text.
  */
 object ClipUtils {
+
+    /**
+     * True when the producing app marked this clip as sensitive via
+     * `ClipDescription.EXTRA_IS_SENSITIVE` (Android 13+ password managers set
+     * it automatically). ClipVault must never persist such clips to history.
+     *
+     * The key is inlined as a literal instead of referencing the API-33
+     * constant field, so this is safe on every supported runtime (minSdk 26)
+     * and also honours apps that set the raw key on older versions.
+     * [ClipDescription.getExtras] exists since API 24.
+     */
+    fun isMarkedSensitive(clip: ClipData?): Boolean {
+        val extras = clip?.description?.extras ?: return false
+        return try {
+            extras.getBoolean(EXTRA_IS_SENSITIVE, false)
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /** Mirror of `android.content.ClipDescription.EXTRA_IS_SENSITIVE` (API 33). */
+    private const val EXTRA_IS_SENSITIVE = "android.content.extra.IS_SENSITIVE"
 
     private fun imageUriFor(context: Context, imagePath: String): android.net.Uri? =
         if (File(imagePath).exists()) {

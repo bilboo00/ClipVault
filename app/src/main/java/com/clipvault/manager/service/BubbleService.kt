@@ -26,6 +26,7 @@ import com.clipvault.manager.app.MainActivity
 import com.clipvault.manager.R
 import com.clipvault.manager.service.startForegroundCompat
 import com.clipvault.manager.data.repository.ClipboardRepository
+import com.clipvault.manager.util.ClipUtils
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -163,6 +164,10 @@ class BubbleService : Service() {
                 val clip: ClipData? = cm.primaryClip
                 if (clip == null || clip.itemCount == 0) {
                     toast("Clipboard is empty")
+                    return@launch
+                }
+                if (ClipUtils.isMarkedSensitive(clip)) {
+                    toast("Sensitive clipboard — not saved")
                     return@launch
                 }
                 val text = clip.getItemAt(0).coerceToText(this@BubbleService)

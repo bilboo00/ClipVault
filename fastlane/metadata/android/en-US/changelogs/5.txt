@@ -1,0 +1,6 @@
+- Captures your clipboard when you open the app (Android 10+ blocks background reads)
+- Smarter capture polling: noticeably less battery use
+- Biometric unlock now works with more credential and screen-lock setups
+- New adaptive launcher icon
+- Fixed: "Nothing copied yet" flashing on cold start, double toggle in Settings, broken bubble icon
+- Crash reports can be attached from Settings -> About

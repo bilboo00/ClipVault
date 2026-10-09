@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.view.accessibility.AccessibilityEvent
 import com.clipvault.manager.data.preferences.SettingsManager
 import com.clipvault.manager.data.repository.ClipboardRepository
+import com.clipvault.manager.util.ClipUtils
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -42,9 +43,14 @@ class ClipboardAccessibilityService : AccessibilityService() {
                     AccessibilityEvent.TYPE_VIEW_LONG_CLICKED
                 feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
                 notificationTimeout = 200
-                flags = flags or
-                    AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS or
-                    AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
+                // Flags deliberately not raised here: they come from
+                // accessibility_service_config.xml as flagDefault only. This
+                // service only reads event.text (the clicked view's label)
+                // and the clipboard itself — it never walks node hierarchies
+                // (canRetrieveWindowContent), never calls getWindows()
+                // (FLAG_RETRIEVE_INTERACTIVE_WINDOWS) and never reads view
+                // IDs (FLAG_REPORT_VIEW_IDS); event delivery for the
+                // subscribed types is unaffected by any of those.
             }
         } catch (e: Exception) {
             android.util.Log.w("AccessibilityService", "Failed to configure serviceInfo", e)
@@ -95,6 +101,8 @@ class ClipboardAccessibilityService : AccessibilityService() {
                 val cm = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
                 val clip: ClipData? = cm.primaryClip
                 if (clip == null || clip.itemCount == 0) return@launch
+                // Producer-marked sensitive clips are never persisted.
+                if (ClipUtils.isMarkedSensitive(clip)) return@launch
                 val text = (clip.getItemAt(0).coerceToText(this@ClipboardAccessibilityService)
                     ?.toString() ?: "").trim()
                 if (text.isBlank()) return@launch

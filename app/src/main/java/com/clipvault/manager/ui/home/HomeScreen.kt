@@ -224,6 +224,10 @@ fun HomeScreen(
                         if (event.success) "Saved to clipboard history" else "Already in history"
                     )
                 }
+                is HomeEvent.SensitiveSkipped -> {
+                    haptics.light()
+                    snackbarHostState.show("Sensitive clipboard — not saved")
+                }
                 is HomeEvent.Deleted -> {
                     val result = snackbarHostState.show(
                         message = "Clip deleted",
@@ -412,6 +416,7 @@ fun HomeScreen(
                                 },
                                 onEnterMultiSelect = { viewModel.enterMultiSelect(clip.id) },
                                 onToggleSelection = { viewModel.toggleSelection(clip.id) },
+                                onShowCachedUrlTitle = { viewModel.showCachedUrlTitle(clip.id, clip.content) },
                                 onFetchUrlTitle = { viewModel.fetchUrlTitle(clip.id, clip.content) },
                                 onDragStateChange = { dragInProgress = it },
                                 urlTitle = urlTitles[clip.id]
@@ -454,6 +459,7 @@ fun HomeScreen(
                             },
                             onEnterMultiSelect = { viewModel.enterMultiSelect(clip.id) },
                             onToggleSelection = { viewModel.toggleSelection(clip.id) },
+                            onShowCachedUrlTitle = { viewModel.showCachedUrlTitle(clip.id, clip.content) },
                             onFetchUrlTitle = { viewModel.fetchUrlTitle(clip.id, clip.content) },
                             onDragStateChange = { dragInProgress = it },
                             urlTitle = urlTitles[clip.id]
@@ -557,12 +563,21 @@ private fun ClipRowItem(
     onReorderPinned: (List<Long>) -> Unit,
     onEnterMultiSelect: () -> Unit,
     onToggleSelection: () -> Unit,
+    onShowCachedUrlTitle: () -> Unit,
     onFetchUrlTitle: () -> Unit,
     onDragStateChange: (Boolean) -> Unit,
     urlTitle: String? = null
 ) {
     if (clip.type == ClipType.URL && !clip.isLocked) {
-        LaunchedEffect(clip.id) { onFetchUrlTitle() }
+        // Display the locally-cached title only — never a network fetch.
+        // The page-title request is fired by the tap below (privacy policy:
+        // "when you tap a URL entry").
+        LaunchedEffect(clip.id, clip.content) { onShowCachedUrlTitle() }
+    }
+    val isTappableUrl = clip.type == ClipType.URL && !clip.isLocked
+    val onClickWithFetch: () -> Unit = {
+        if (isTappableUrl) onFetchUrlTitle()
+        onClick()
     }
     val isSelected = clip.id in selectedIds
     Box(modifier) {
@@ -589,7 +604,7 @@ private fun ClipRowItem(
                 onPin = onPin,
                 onFavorite = onFavorite,
                 onDelete = onDelete,
-                onClick = onClick,
+                onClick = onClickWithFetch,
                 onLongPress = onLongPress,
                 onReorderPinned = onReorderPinned,
                 onDragStateChange = onDragStateChange,

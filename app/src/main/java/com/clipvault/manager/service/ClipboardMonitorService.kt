@@ -25,6 +25,7 @@ import com.clipvault.manager.R
 import com.clipvault.manager.service.startForegroundCompat
 import com.clipvault.manager.data.repository.ClipboardRepository
 import com.clipvault.manager.data.preferences.SettingsManager
+import com.clipvault.manager.util.ClipUtils
 import com.clipvault.manager.util.ImageCopier
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineExceptionHandler
@@ -216,6 +217,11 @@ class ClipboardMonitorService : Service() {
         try {
             val clip: ClipData? = clipboardManager.primaryClip
             if (clip == null || clip.itemCount == 0) return false
+            // Producer-marked sensitive clips (password managers,
+            // EXTRA_IS_SENSITIVE) are read but never persisted. Returning
+            // true keeps the adaptive backoff treating this as a
+            // successful read rather than "platform says no".
+            if (ClipUtils.isMarkedSensitive(clip)) return true
             val item = clip.getItemAt(0)
 
             val imageUri = item.uri?.takeIf { uri ->

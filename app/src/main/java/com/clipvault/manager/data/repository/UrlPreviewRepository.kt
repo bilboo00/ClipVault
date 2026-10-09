@@ -31,6 +31,14 @@ class UrlPreviewRepository @Inject constructor(
     suspend fun getCached(url: String): String? =
         dao.get(url)?.takeIf { System.currentTimeMillis() - it.fetchedAt < CACHE_TTL_MS }?.title
 
+    /**
+     * Local-only lookup for the list's display path: returns whatever title
+     * was stored previously (even past the refresh TTL) and never touches the
+     * network. Per the privacy policy, titles are only fetched over the
+     * network when the user taps the entry — see [getCached]/[refresh].
+     */
+    suspend fun peekCached(url: String): String? = dao.get(url)?.title
+
     suspend fun refresh(url: String): String? {
         val title = runCatching { fetchOnce(url) }.getOrNull()
         persist(url, title)

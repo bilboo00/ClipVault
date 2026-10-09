@@ -85,6 +85,12 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    testOptions {
+        // Android framework stubs return defaults instead of throwing, so
+        // JVM unit tests can exercise code that touches Log/Context/etc.
+        unitTests.isReturnDefaultValues = true
+    }
+
     kotlinOptions {
         jvmTarget = "17"
     }
@@ -157,9 +163,11 @@ dependencies {
     // Biometric authentication
     implementation("androidx.biometric:biometric:1.1.0")
 
-    // Testing (disabled — no test sources; re-enable when tests are added)
-    // testImplementation("junit:junit:4.13.2")
-    // testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
+    // Testing — JVM unit tests (no androidTest sources)
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("io.mockk:mockk:1.13.12")
+    testImplementation("app.cash.turbine:turbine:1.1.0")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
     // androidTestImplementation("androidx.test.ext:junit:1.2.1")
     // androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
     // androidTestImplementation(platform("androidx.compose:compose-bom:2024.08.00"))

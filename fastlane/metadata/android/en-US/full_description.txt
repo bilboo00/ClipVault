@@ -21,7 +21,7 @@ Productivity
 • Export your history as CSV, Markdown, or plain text
 
 Integration
-• Enhanced link previews with OpenGraph metadata
+• Link previews: page titles are fetched only when you tap a URL entry
 • Share text to ClipVault from any app via the system share sheet
 • Deep links (clipvault:// and https://clipvault.app)
 • Floating bubble overlay for quick access from any screen
@@ -34,4 +34,4 @@ Design
 • Haptic feedback tuned for each action
 
 Privacy
-ClipVault requests no network permissions except the optional INTERNET access used to fetch link previews. It contains no analytics, tracking, or telemetry.
+ClipVault requests no network permissions except the INTERNET access used to fetch a link's page title when you tap a URL entry. It contains no analytics, tracking, or telemetry.

@@ -14,6 +14,7 @@ import com.clipvault.manager.data.repository.UrlPreviewRepository
 import com.clipvault.manager.domain.PasteQueueManager
 import com.clipvault.manager.domain.model.Clip
 import com.clipvault.manager.service.ClipboardMonitorService
+import com.clipvault.manager.util.ClipUtils
 import android.content.ClipboardManager
 import android.content.Context
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -51,6 +52,7 @@ sealed interface HomeEvent {
     data class Deleted(val clip: ClipEntity) : HomeEvent
     data class BulkDeleted(val clips: List<ClipEntity>) : HomeEvent
     data class SavedNew(val success: Boolean) : HomeEvent
+    data object SensitiveSkipped : HomeEvent
     data class ToggledPin(val nowPinned: Boolean) : HomeEvent
     data class BulkPinned(val count: Int) : HomeEvent
     data object MonitoringPaused : HomeEvent
@@ -124,6 +126,34 @@ class HomeViewModel @Inject constructor(
     // same URL scrolling into view together coalesce into a single HTTP+DB pass
     // (the old containsKey-then-launch TOCTOU launched one coroutine per call).
     private val titleFetchInFlight = ConcurrentHashMap<String, Deferred<String?>>()
+
+    /**
+     * Display-path title lookup for a URL row becoming visible: resolves from
+     * the in-memory cache or the local Room cache ONLY. Never performs a
+     * network request — per PRIVACY_POLICY.md the page-title fetch happens
+     * exclusively when the user taps the entry, which calls [fetchUrlTitle].
+     */
+    fun showCachedUrlTitle(clipId: Long, url: String) {
+        if (titleCache.containsKey(url)) {
+            titleMap[clipId] = cacheGet(url)
+            return
+        }
+        viewModelScope.launch {
+            try {
+                // Room's suspend DAO dispatches the query onto its own
+                // executor, so this stays on the caller's context (testable
+                // under a virtual scheduler, main-safe in production).
+                val title = urlPreviewRepository.peekCached(url) ?: return@launch
+                titleCache[url] = title
+                titleMap[clipId] = title
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Local cache miss/error — render without a title. The tap
+                // path (fetchUrlTitle) is unaffected and will still fetch.
+            }
+        }
+    }
 
     /** Fetch a URL's page title in the background (cached in-memory + DB). */
     fun fetchUrlTitle(clipId: Long, url: String) {
@@ -307,23 +337,32 @@ class HomeViewModel @Inject constructor(
      */
     suspend fun saveCurrentClipboardNow(silent: Boolean = false) {
         if (!silent) saving.value = true
-        val content = withContext(Dispatchers.IO) {
+        val (content, sensitive) = withContext(Dispatchers.IO) {
             try {
                 val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                cm.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
+                val clip = cm.primaryClip
+                val text = clip?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
+                text to ClipUtils.isMarkedSensitive(clip)
             } catch (_: SecurityException) {
-                ""
+                "" to false
             }
         }
-        // Android 10+ denies clipboard reads whenever the app isn't the
-        // focused window (system log: "Denying clipboard access … not in
-        // focus"), which silently broke background autosave. Reading here is
-        // legal because we only run while RESUMED — so every time the user
-        // opens/returns to the app, anything new on their clipboard lands in
-        // history without them touching the FAB.
-        val id = repository.saveIfNew(content, sourceLabel = if (silent) "resume" else "fab")
+        if (sensitive) {
+            // Clips marked EXTRA_IS_SENSITIVE (password managers, Android 13+)
+            // must never reach history — skip save and all DB work, and tell
+            // the user when they tapped Save themselves.
+            if (!silent) _events.emit(HomeEvent.SensitiveSkipped)
+        } else {
+            // Android 10+ denies clipboard reads whenever the app isn't the
+            // focused window (system log: "Denying clipboard access … not in
+            // focus"), which silently broke background autosave. Reading here is
+            // legal because we only run while RESUMED — so every time the user
+            // opens/returns to the app, anything new on their clipboard lands in
+            // history without them touching the FAB.
+            val id = repository.saveIfNew(content, sourceLabel = if (silent) "resume" else "fab")
+            if (!silent) _events.emit(HomeEvent.SavedNew(id != null))
+        }
         if (!silent) {
-            _events.emit(HomeEvent.SavedNew(id != null))
             delay(400)
             saving.value = false
         }

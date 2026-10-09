@@ -1,6 +1,6 @@
 # ClipVault Privacy Policy
 
-**Last updated:** July 29, 2026
+**Last updated:** October 2, 2026
 
 ## Overview
 
@@ -19,9 +19,13 @@ ClipVault saves a history of text you copy. Each entry contains:
 
 Data is stored in a private SQLite database (`clipboard.db`) within the app's sandboxed storage. Other apps cannot access it.
 
+Clips that their source app marks as sensitive (Android 13+ password managers set `EXTRA_IS_SENSITIVE`) are never saved — ClipVault reads the flag only to skip them.
+
+Android backup is disabled for ClipVault (`allowBackup=false`): your history and settings are never uploaded to Google's cloud backup and are never included in device-to-device transfer tools.
+
 ## Network access
 
-The app makes no network requests except in one case: when you tap a URL entry, the app may fetch the page title via HTTP/HTTPS to display it in the detail view. This request goes directly to the URL's server. No proxy, no logging, no ClipVault servers involved.
+The app makes no network requests except in one case: when you tap a URL entry, the app may fetch the page title via HTTP/HTTPS to display it with that entry. This request goes directly to the URL's server. No proxy, no logging, no ClipVault servers involved.
 
 ## Permissions
 
