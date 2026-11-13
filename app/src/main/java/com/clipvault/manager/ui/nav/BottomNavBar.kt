@@ -7,16 +7,16 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.ContentPaste
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SnippetFolder
-import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.ContentPaste
-import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.SnippetFolder
-import androidx.compose.material.icons.outlined.BarChart
+import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -42,15 +42,15 @@ data class BottomNavItem(
 val bottomNavItems = listOf(
     BottomNavItem(
         route = Route.Home.path,
-        label = "Home",
+        label = "Clipboard",
         selectedIcon = Icons.Filled.ContentPaste,
         unselectedIcon = Icons.Outlined.ContentPaste
     ),
     BottomNavItem(
-        route = Route.Search.path,
-        label = "Search",
-        selectedIcon = Icons.Filled.Search,
-        unselectedIcon = Icons.Outlined.Search
+        route = Route.Favorites.path,
+        label = "Favorites",
+        selectedIcon = Icons.Filled.Star,
+        unselectedIcon = Icons.Outlined.Star
     ),
     BottomNavItem(
         route = Route.Snippets.path,
@@ -78,15 +78,15 @@ fun ClipVaultBottomBar(
     onNavigate: (String) -> Unit
 ) {
     NavigationBar(
-        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+        containerColor = MaterialTheme.colorScheme.surfaceContainer,
         tonalElevation = 0.dp
     ) {
         bottomNavItems.forEach { item ->
             val selected = currentRoute == item.route
-            // Pill indicator behind the icon, tonally consistent with the rest
-            // of the app (TypeBadge uses the same container).
+            // Pill indicator behind the icon — lavender like the design
+            // export's active-tab highlight.
             val pillColor by animateColorAsState(
-                targetValue = if (selected) MaterialTheme.colorScheme.primaryContainer
+                targetValue = if (selected) MaterialTheme.colorScheme.secondaryContainer
                 else Color.Transparent,
                 animationSpec = tween(250),
                 label = "nav-pill"
@@ -110,7 +110,7 @@ fun ClipVaultBottomBar(
                 },
                 label = { Text(item.label) },
                 colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    selectedIconColor = MaterialTheme.colorScheme.onSecondaryContainer,
                     selectedTextColor = MaterialTheme.colorScheme.onSurface,
                     unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
                     unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,

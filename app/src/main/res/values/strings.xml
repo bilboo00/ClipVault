@@ -2,7 +2,7 @@
 <resources>
     <string name="app_name">ClipVault</string>
 
-    <string name="notif_title">Clipboard Manager is active</string>
+    <string name="notif_title">ClipVault is active</string>
     <string name="notif_idle">Waiting for copied text…</string>
     <string name="action_pause">Pause</string>
     <string name="action_resume">Resume</string>

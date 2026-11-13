@@ -95,6 +95,7 @@ class ClipboardMonitorService : Service() {
         startListening()
     }
 
+    @android.annotation.SuppressLint("InlinedApi")
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_PAUSE -> {
@@ -103,6 +104,11 @@ class ClipboardMonitorService : Service() {
                 updateNotification(paused = true)
             }
             ACTION_RESUME -> {
+                // Re-enter the foreground: ACTION_PAUSE detached it via
+                // stopForeground(DETACH), and without this the service would
+                // keep polling as a background service until the system kills
+                // it (plus the notification would no longer be a real FGS one).
+                startForegroundCompat(NOTIFICATION_ID, buildNotification(lastPreview), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
                 startListening()
                 updateNotification(paused = false)
             }
@@ -120,6 +126,10 @@ class ClipboardMonitorService : Service() {
      * emulators / older devices where the listener may not fire reliably.
      */
     private fun startListening() {
+        // Guard the lateinit: if onCreate() died before the
+        // getSystemService cast, onStartCommand/onDestroy paths must not
+        // throw UninitializedPropertyAccessException on top of it.
+        if (!::clipboardManager.isInitialized) return
         if (listener != null) return
         // Snapshot the current clipboard WITHOUT saving — this primes `lastSeen`
         // so the first listener event doesn't re-save the stale clipboard.
@@ -199,7 +209,9 @@ class ClipboardMonitorService : Service() {
     }
 
     private fun stopListening() {
-        listener?.let { clipboardManager.removePrimaryClipChangedListener(it) }
+        if (::clipboardManager.isInitialized) {
+            listener?.let { clipboardManager.removePrimaryClipChangedListener(it) }
+        }
         listener = null
         pollJob?.cancel()
         pollJob = null
@@ -450,17 +462,46 @@ class ClipboardMonitorService : Service() {
         }
 
         fun stop(ctx: Context) {
+            try {
+                // Cancel any pending auto-restart so an explicit opt-out
+                // sticks — otherwise onDestroy()'s scheduleRestart() plus the
+                // persisted job would resurrect the service behind the toggle.
+                (ctx.getSystemService(JOB_SCHEDULER_SERVICE) as? JobScheduler)?.cancel(JOB_ID)
+            } catch (_: Exception) { }
             try { ctx.stopService(Intent(ctx, ClipboardMonitorService::class.java)) }
             catch (_: Exception) { }
         }
     }
 
     class RestartJobService : JobService() {
+        private val restartScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
         override fun onStartJob(params: JobParameters?): Boolean {
-            ClipboardMonitorService.start(applicationContext)
-            return false
+            restartScope.launch {
+                try {
+                    // The persisted restart job outlives an explicit opt-out:
+                    // stop() -> onDestroy() schedules it, so without this gate
+                    // the service would resurrect 15 min after the user
+                    // disabled monitoring. Fail open (restart) only when the
+                    // DataStore read itself fails.
+                    val enabled = runCatching {
+                        SettingsManager(applicationContext).observeMonitoringEnabledRaw()
+                    }.getOrDefault(true)
+                    if (enabled) ClipboardMonitorService.start(applicationContext)
+                } catch (_: Exception) {
+                    // Best-effort restart — never crash the job host
+                } finally {
+                    try {
+                        params?.let { jobFinished(it, false) }
+                    } catch (_: Exception) { }
+                }
+            }
+            return true
         }
 
-        override fun onStopJob(params: JobParameters?): Boolean = false
+        override fun onStopJob(params: JobParameters?): Boolean {
+            restartScope.cancel()
+            return false
+        }
     }
 }

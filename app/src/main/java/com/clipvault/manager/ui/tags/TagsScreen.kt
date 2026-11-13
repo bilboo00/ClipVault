@@ -19,15 +19,15 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Sell
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -53,8 +53,12 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.clipvault.manager.data.local.entity.TagEntity
+import com.clipvault.manager.ui.components.EmptyStateWithOrb
+import com.clipvault.manager.ui.components.SaveFab
+import com.clipvault.manager.ui.components.tonalSearchFieldColors
+import com.clipvault.manager.ui.theme.Spacing
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun TagsScreen(
     onBack: () -> Unit = {},
@@ -75,34 +79,74 @@ fun TagsScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+                    containerColor = MaterialTheme.colorScheme.background,
+                    scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh
                 )
             )
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(
+            SaveFab(
                 onClick = { showCreate = true },
-                icon = { Icon(Icons.Outlined.Add, contentDescription = null) },
-                text = { Text("New tag") },
-                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                label = "New tag"
             )
         }
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            if (state.tags.isEmpty()) {
-                EmptyHint(
-                    onCreateClick = { showCreate = true }
+            var query by remember { mutableStateOf("") }
+            if (state.tags.isNotEmpty()) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = Spacing.Md, vertical = Spacing.Xs),
+                    placeholder = { Text("Search tags") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(28.dp),
+                    colors = tonalSearchFieldColors(),
+                    leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
+                    trailingIcon = {
+                        if (query.isNotEmpty()) {
+                            IconButton(onClick = { query = "" }) {
+                                Icon(Icons.Outlined.Close, contentDescription = "Clear")
+                            }
+                        }
+                    }
+                )
+            }
+            val queryText = query
+            val visibleTags = remember(state.tags, state.usageCount, queryText) {
+                if (queryText.isBlank()) state.tags
+                else state.tags.filter { it.name.contains(queryText, ignoreCase = true) }
+            }
+            if (visibleTags.isEmpty() && queryText.isNotBlank()) {
+                EmptyStateWithOrb(
+                    icon = Icons.Outlined.Search,
+                    title = "No matching tags",
+                    subtitle = "No tag matches \"$queryText\".",
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else if (visibleTags.isEmpty()) {
+                EmptyStateWithOrb(
+                    icon = Icons.Outlined.Sell,
+                    title = "No tags yet",
+                    subtitle = "Tags let you organize clips across types and dates.",
+                    actionLabel = "Create your first tag",
+                    onAction = { showCreate = true },
+                    modifier = Modifier.fillMaxSize()
                 )
             } else {
                 LazyColumn(
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                        horizontal = 12.dp, vertical = 8.dp
+                        horizontal = Spacing.Md, vertical = Spacing.Xs
                     ),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(Spacing.Sm)
                 ) {
-                    items(state.tags, key = { it.id }) { tag ->
+                    items(visibleTags, key = { it.id }) { tag ->
                         TagCard(
+                            modifier = Modifier.animateItem(
+                                placementSpec = androidx.compose.animation.core.tween(durationMillis = 250)
+                            ),
                             tag = tag,
                             usageCount = state.usageCount[tag.id] ?: 0,
                             onEdit = { editingTag = tag },
@@ -156,6 +200,7 @@ fun TagsScreen(
 
 @Composable
 private fun TagCard(
+    modifier: Modifier = Modifier,
     tag: TagEntity,
     usageCount: Int,
     onEdit: () -> Unit,
@@ -165,15 +210,16 @@ private fun TagCard(
         runCatching { android.graphics.Color.parseColor(tag.color) }
             .getOrNull()
             ?.let { Color(it) }
-            ?: Color(0xFF4F46E5)
+            ?: Color(0xFF434574)
     }
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Row(
-            modifier = Modifier.padding(14.dp),
+            modifier = Modifier.padding(Spacing.CardPadding),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
@@ -182,7 +228,7 @@ private fun TagCard(
                     .clip(CircleShape)
                     .background(color)
             )
-            Spacer(Modifier.width(12.dp))
+            Spacer(Modifier.width(Spacing.Md))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = tag.name,
@@ -205,39 +251,6 @@ private fun TagCard(
     }
 }
 
-@Composable
-private fun EmptyHint(onCreateClick: () -> Unit) {
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.padding(32.dp)
-        ) {
-            Icon(
-                Icons.Outlined.Sell,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(48.dp)
-            )
-            Spacer(Modifier.height(12.dp))
-            Text("No tags yet", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "Tags let you organize clips across types and dates.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(Modifier.height(16.dp))
-            TextButton(onClick = onCreateClick) {
-                Icon(Icons.Outlined.Add, contentDescription = null)
-                Spacer(Modifier.width(6.dp))
-                Text("Create your first tag")
-            }
-        }
-    }
-}
 
 @Composable
 private fun TagEditorDialog(
@@ -313,11 +326,11 @@ private fun parseHexColor(hex: String): Color {
     return try {
         Color(android.graphics.Color.parseColor(hex))
     } catch (_: Exception) {
-        Color(0xFF4F46E5)
+        Color(0xFF434574)
     }
 }
 
 internal val TAG_COLORS = listOf(
-    "#4F46E5", "#14B8A6", "#F59E0B", "#EF4444", "#8B5CF6",
+    "#434574", "#14B8A6", "#F59E0B", "#EF4444", "#8B5CF6",
     "#EC4899", "#10B981", "#3B82F6", "#F97316", "#6366F1"
 )

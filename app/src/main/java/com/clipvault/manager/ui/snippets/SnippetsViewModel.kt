@@ -54,6 +54,10 @@ class SnippetsViewModel @Inject constructor(
     }
 
     fun save(title: String, content: String) = viewModelScope.launch {
+        // The editor UI disables Save on blank input; guard here too so a
+        // programmatic call can't persist a title-less/content-less snippet.
+        // The editor stays open so no input is lost.
+        if (title.isBlank() || content.isBlank()) return@launch
         val current = editorState.value.first
         if (current == null) {
             repository.create(title.trim(), content.trim())

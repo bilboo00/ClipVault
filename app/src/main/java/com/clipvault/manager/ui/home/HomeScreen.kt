@@ -18,11 +18,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -34,26 +34,21 @@ import androidx.paging.LoadState
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemContentType
 import androidx.paging.compose.itemKey
-import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.PushPin
-import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.FavoriteBorder
-import androidx.compose.material.icons.outlined.Pause
-import androidx.compose.material.icons.outlined.PlayArrow
+import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.PushPin
-import androidx.compose.material.icons.outlined.Queue
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -61,9 +56,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -86,7 +79,9 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -101,55 +96,69 @@ import com.clipvault.manager.domain.model.Clip
 import com.clipvault.manager.domain.model.ClipClassifier
 import com.clipvault.manager.util.ClipUtils
 import com.clipvault.manager.util.ImageCopier
-import com.clipvault.manager.ui.components.AnimatedCopyButton
+import com.clipvault.manager.ui.components.AnimatedToggleIcon
 import com.clipvault.manager.ui.components.CopyHeroOverlay
+import com.clipvault.manager.ui.components.CopyPill
 import com.clipvault.manager.ui.components.EmptyStateWithOrb
 import com.clipvault.manager.ui.components.InlinePreview
+import com.clipvault.manager.ui.components.QuickActionPill
 import com.clipvault.manager.ui.components.MultiSelectActionBar
 import com.clipvault.manager.ui.components.MultiSelectClipRow
+import com.clipvault.manager.ui.components.MultiSelectTopBar
 import com.clipvault.manager.ui.components.QueueSheet
 import com.clipvault.manager.ui.components.SaveFab
 import com.clipvault.manager.ui.components.StackedSnackbarHost
 import com.clipvault.manager.ui.components.SwipeAction
 import com.clipvault.manager.ui.components.SwipeableRow
-import com.clipvault.manager.ui.components.TypeBadge
+import com.clipvault.manager.ui.components.TypeFilterSheet
 import com.clipvault.manager.ui.components.label
 import com.clipvault.manager.ui.components.typeIcon
-import com.clipvault.manager.ui.components.draggableItem
 import com.clipvault.manager.ui.components.rememberCopyHeroState
 import com.clipvault.manager.ui.components.rememberStackedSnackbarHostState
+import com.clipvault.manager.ui.theme.Spacing
 import com.clipvault.manager.ui.theme.Motion
 import com.clipvault.manager.util.rememberRelativeTime
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun HomeScreen(
     onOpenDetail: (Long) -> Unit,
+    onOpenSearch: () -> Unit,
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    // Snapshot all topbar / scaffold fields once. Reading `state.X` from
+    // inside the Scaffold's `topBar` lambda (and other slot lambdas) still
+    // counts as a read of the delegated `state` — the Scaffold lambda runs
+    // every time the parent recomposes. Capturing once at the top means
+    // those slot lambdas receive plain vals and don't re-subscribe.
+    val multiSelectMode = state.multiSelectMode
+    val selectedIds = state.selectedIds
+    val loadedCount = state.loadedCount
+    val totalCount = state.totalCount
+    val monitoringActive = state.monitoringActive
+    val queueItems = state.queueItems
+    val savingNow = state.savingNow
+    val viewMode = state.viewMode
+    val activeFilter = state.activeFilter
+    val pinnedClips = state.pinnedClips
+    val favoriteCount = state.favoriteCount
+    val justCopiedForId = state.justCopiedForId
     val context = LocalContext.current
     val snackbarHostState = rememberStackedSnackbarHostState()
     val haptics = rememberHaptics()
     val hero = rememberCopyHeroState()
     val listState = rememberLazyListState()
-    val topBarBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
+    val topBarBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     val scope = rememberCoroutineScope()
     val urlTitles = viewModel.titleMap
     var showClearDialog by remember { mutableStateOf(false) }
     var showQueueSheet by remember { mutableStateOf(false) }
-
-    // Shared reorder list for pinned-clip drag reordering. Kept in sync with
-    // the underlying list; mutated locally during a drag, restored on DB change.
-    val reorderList = remember { mutableStateListOf<Clip>() }
-    var dragInProgress by remember { mutableStateOf(false) }
-    LaunchedEffect(state.pinnedClips) {
-        if (dragInProgress) return@LaunchedEffect
-        reorderList.clear()
-        reorderList.addAll(state.pinnedClips)
-    }
+    var showTypeFilterSheet by remember { mutableStateOf(false) }
+    var showReorderSheet by remember { mutableStateOf(false) }
 
     val lazyClips = viewModel.clipsFlow.collectAsLazyPagingItems()
     LaunchedEffect(lazyClips.itemCount) {
@@ -215,7 +224,13 @@ fun HomeScreen(
     }
 
     LaunchedEffect(Unit) {
-        viewModel.events.collect { event ->
+        // collectLatest, not collect: each show() suspends for the full
+        // toast duration, so a sequential collector would queue snackbars
+        // behind each other — e.g. an autosave "Saved" toast would hold up
+        // the delete → Undo snackbar for 3.5 s. Preemption cancels the
+        // suspended show (its finally dismisses the stale item); an
+        // already-tapped Undo already returned and is unaffected.
+        viewModel.events.collectLatest { event ->
             when (event) {
                 is HomeEvent.Copied -> Unit
                 is HomeEvent.SavedNew -> {
@@ -223,6 +238,10 @@ fun HomeScreen(
                     snackbarHostState.show(
                         if (event.success) "Saved to clipboard history" else "Already in history"
                     )
+                }
+                is HomeEvent.EmptyClipboard -> {
+                    haptics.light()
+                    snackbarHostState.show("Clipboard is empty")
                 }
                 is HomeEvent.SensitiveSkipped -> {
                     haptics.light()
@@ -271,9 +290,10 @@ fun HomeScreen(
     }
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             AnimatedContent(
-                targetState = state.multiSelectMode,
+                targetState = multiSelectMode,
                 transitionSpec = {
                     (fadeIn() + slideInVertically { -it / 4 }) togetherWith
                         (fadeOut() + slideOutVertically { -it / 4 })
@@ -282,27 +302,18 @@ fun HomeScreen(
             ) { multi ->
                 if (multi) {
                     MultiSelectTopBar(
-                        selectedCount = state.selectedIds.size,
-                        totalCount = state.loadedCount,
+                        selectedCount = selectedIds.size,
+                        totalCount = loadedCount,
                         scrollBehavior = topBarBehavior,
                         onSelectAll = {
                             haptics.light()
-                            if (state.selectedIds.size == state.loadedCount) viewModel.clearSelection()
+                            if (selectedIds.size == loadedCount) viewModel.clearSelection()
                             else viewModel.selectAll()
                         },
                         onClose = {
                             haptics.light()
                             viewModel.exitMultiSelect()
                         }
-                    )
-                } else {
-                    NormalTopBar(
-                        count = state.totalCount,
-                        monitoringActive = state.monitoringActive,
-                        queueSize = state.queueItems.size,
-                        scrollBehavior = topBarBehavior,
-                        onToggleMonitoring = viewModel::toggleMonitoring,
-                        onOpenQueue = { showQueueSheet = true }
                     )
                 }
             }
@@ -311,12 +322,12 @@ fun HomeScreen(
             // Slide/scale in and out instead of popping when entering or
             // leaving multi-select mode.
             AnimatedVisibility(
-                visible = !state.multiSelectMode,
+                visible = !multiSelectMode,
                 enter = fadeIn() + scaleIn(initialScale = 0.9f),
                 exit = fadeOut() + scaleOut(targetScale = 0.9f)
             ) {
                 SaveFab(
-                    isPulsing = state.savingNow,
+                    isPulsing = savingNow,
                     onClick = {
                         haptics.medium()
                         scope.launch { viewModel.saveCurrentClipboardNow() }
@@ -327,16 +338,16 @@ fun HomeScreen(
         snackbarHost = { StackedSnackbarHost(snackbarHostState) },
         bottomBar = {
             AnimatedVisibility(
-                visible = state.multiSelectMode,
+                visible = multiSelectMode,
                 enter = slideInVertically { it } + fadeIn(),
                 exit = slideOutVertically { it } + fadeOut()
             ) {
                 MultiSelectActionBar(
-                    selectedCount = state.selectedIds.size,
-                    totalCount = state.loadedCount,
+                    selectedCount = selectedIds.size,
+                    totalCount = loadedCount,
                     onSelectAll = {
                         haptics.light()
-                        if (state.selectedIds.size == state.loadedCount) viewModel.clearSelection()
+                        if (selectedIds.size == loadedCount) viewModel.clearSelection()
                         else viewModel.selectAll()
                     },
                     onPin = { haptics.medium(); viewModel.bulkPin() },
@@ -346,13 +357,29 @@ fun HomeScreen(
         }
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            if (!state.multiSelectMode) {
-                FilterChipRow(
-                    activeFilter = state.activeFilter,
-                    onFilterChange = viewModel::setFilter,
-                    favoritesOnly = state.favoritesOnly,
-                    onFavoritesChange = viewModel::setFavoritesOnly
+            if (!multiSelectMode) {
+                SearchPill(
+                    queueCount = queueItems.size,
+                    onOpenSearch = onOpenSearch,
+                    onOpenQueue = { showQueueSheet = true },
+                    onOpenFilters = { showTypeFilterSheet = true },
+                    modifier = Modifier.padding(
+                        horizontal = Spacing.ScreenHorizontal,
+                        vertical = Spacing.Sm
+                    )
                 )
+                FeedFilterRow(
+                    viewMode = viewMode,
+                    activeFilter = activeFilter,
+                    totalCount = totalCount,
+                    pinnedCount = pinnedClips.size,
+                    favoriteCount = favoriteCount,
+                    onSelectMode = viewModel::setViewMode,
+                    onSelectType = viewModel::setFilter
+                )
+                if (!monitoringActive) {
+                    MonitoringPausedBanner(onResume = viewModel::toggleMonitoring)
+                }
             }
             Box(modifier = Modifier.fillMaxSize()) {
                 // Only trust "empty" once the refresh pass has finished.
@@ -362,111 +389,210 @@ fun HomeScreen(
                 // here flashed "Nothing copied yet" over a non-empty history
                 // until the user toggled a filter chip.
                 val refreshState = lazyClips.loadState.refresh
-                val showEmpty = state.pinnedClips.isEmpty() &&
+                val showEmpty = pinnedClips.isEmpty() &&
                     lazyClips.itemCount == 0 &&
                     refreshState is LoadState.NotLoading
-             if (showEmpty) {
+              // Empty/list switch — plain `if`, no crossfade. The previous
+              // AnimatedContent was firing on every filter toggle because
+              // the paging refresh briefly reads `itemCount == 0`, and the
+              // 200 ms fade compounded into the visible "panel shift"
+              // jankiness.
+              if (showEmpty) {
+                val emptyTitle = when (viewMode) {
+                    HomeViewMode.PINNED -> "No pinned clips"
+                    HomeViewMode.FAVORITES -> "No favorites yet"
+                    HomeViewMode.ALL -> "Nothing copied yet"
+                }
+                val emptySubtitle = when (viewMode) {
+                    HomeViewMode.PINNED -> "Pin important clips to keep them here."
+                    HomeViewMode.FAVORITES -> "Tap the heart on any clip to favorite it."
+                    HomeViewMode.ALL -> "Copy text anywhere — it shows up here.\nShake to clear history · long-press to multi-select."
+                }
                 EmptyStateWithOrb(
-                    title = "Nothing copied yet",
-                    subtitle = "Copy text anywhere — it shows up here.\nShake to clear history · long-press to multi-select.",
+                    title = emptyTitle,
+                    subtitle = emptySubtitle,
                     modifier = Modifier
                 )
             } else {
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .nestedScroll(topBarBehavior.nestedScrollConnection),
-                    contentPadding = PaddingValues(
-                        start = 12.dp, end = 12.dp, top = 8.dp,
-                        bottom = if (state.multiSelectMode) 8.dp else 96.dp
-                    ),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    if (state.pinnedClips.isNotEmpty()) {
-                        item(key = "header_pinned", contentType = "header") {
-                            DateSectionHeader("Pinned")
+                // Per-item state has been hoisted into locals (multiSelectMode,
+                    // selectedIds, justCopiedForId, viewMode, pinnedClips) so a
+                    // a single field change (e.g. justCopiedForId) doesn't
+                    // re-subscribe every visible clip row.
+                    val contentBottom = if (multiSelectMode) 8.dp else 96.dp
+                    // Modifier.animateItem() with placementSpec=null: skip the per-position
+                    // spring animation entirely on scroll-driven reorders. The old
+                    // animateItemPlacement() ran a spring on every scroll offset
+                    // change for every visible item, which was the dominant cost
+                    // in the home list (60 fps spring solve per row).
+                    val itemAnimSpec = remember<androidx.compose.animation.core.FiniteAnimationSpec<Float>?> { null }
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .nestedScroll(topBarBehavior.nestedScrollConnection),
+                        contentPadding = PaddingValues(
+                            start = Spacing.Md, end = Spacing.Md, top = Spacing.Sm,
+                            bottom = contentBottom
+                        ),
+                        verticalArrangement = Arrangement.spacedBy(Spacing.Sm)
+                    ) {
+                        if (pinnedClips.isNotEmpty() && viewMode != HomeViewMode.PINNED) {
+                            item(key = "header_pinned", contentType = "header") {
+                                FeedSectionHeader(
+                                    title = "Pinned",
+                                    icon = Icons.Filled.PushPin,
+                                    iconTint = MaterialTheme.colorScheme.primary,
+                                    trailing = {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            SavedCountChip(pinnedClips.size)
+                                            if (pinnedClips.size > 1 && !multiSelectMode) {
+                                                IconButton(
+                                                    onClick = {
+                                                        haptics.light()
+                                                        showReorderSheet = true
+                                                    },
+                                                    modifier = Modifier.size(32.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Filled.SwapVert,
+                                                        contentDescription = "Reorder pinned",
+                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        modifier = Modifier.size(18.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                )
+                            }
+                            items(
+                                items = pinnedClips.chunked(2),
+                                key = { row -> "pinned_${row.first().id}" },
+                                contentType = { "pinnedRow" }
+                            ) { row ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(IntrinsicSize.Min),
+                                    horizontalArrangement = Arrangement.spacedBy(Spacing.Sm)
+                                ) {
+                                    row.forEach { clip ->
+                                        PinnedCell(
+                                            clip = clip,
+                                            justCopied = justCopiedForId == clip.id,
+                                            selected = clip.id in selectedIds,
+                                            selectionMode = multiSelectMode,
+                                            onCopy = { onCopy(clip) { null } },
+                                            onClick = {
+                                                if (multiSelectMode) viewModel.toggleSelection(clip.id)
+                                                else onOpenDetail(clip.id)
+                                            },
+                                            onLongPress = {
+                                                if (multiSelectMode) viewModel.toggleSelection(clip.id)
+                                                else onLongPressEnterSelect(clip)
+                                            },
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .fillMaxHeight()
+                                        )
+                                    }
+                                    if (row.size == 1) {
+                                        Spacer(Modifier.weight(1f))
+                                    }
+                                }
+                            }
+                        }
+                        item(key = "header_recent", contentType = "header") {
+                            FeedSectionHeader(
+                                title = when (viewMode) {
+                                    HomeViewMode.ALL -> "Recent Clips"
+                                    HomeViewMode.FAVORITES -> "Favorites"
+                                    HomeViewMode.PINNED -> "Pinned"
+                                },
+                                icon = when (viewMode) {
+                                    HomeViewMode.ALL -> Icons.Outlined.History
+                                    HomeViewMode.FAVORITES -> Icons.Outlined.FavoriteBorder
+                                    HomeViewMode.PINNED -> Icons.Filled.PushPin
+                                },
+                                iconTint = if (viewMode == HomeViewMode.ALL) MaterialTheme.colorScheme.secondary
+                                else MaterialTheme.colorScheme.primary,
+                                trailing = {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        if (viewMode == HomeViewMode.PINNED &&
+                                            pinnedClips.size > 1 &&
+                                            !multiSelectMode
+                                        ) {
+                                            IconButton(
+                                                onClick = {
+                                                    haptics.light()
+                                                    showReorderSheet = true
+                                                },
+                                                modifier = Modifier.size(32.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.SwapVert,
+                                                    contentDescription = "Reorder pinned",
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
+                                        }
+                                        if (!multiSelectMode) {
+                                            TextButton(
+                                                onClick = {
+                                                    haptics.light()
+                                                    viewModel.enterMultiSelect()
+                                                },
+                                                contentPadding = PaddingValues(horizontal = Spacing.Sm)
+                                            ) {
+                                                Text(
+                                                    text = "Batch Select",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    fontWeight = FontWeight.Medium,
+                                                    color = MaterialTheme.colorScheme.primary
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            )
                         }
                         items(
-                            items = state.pinnedClips,
-                            key = { it.id },
-                            contentType = { "clip" }
-                        ) { clip ->
+                            count = lazyClips.itemCount,
+                            key = lazyClips.itemKey { "paged_${it.id}" },
+                            contentType = lazyClips.itemContentType { "clip" }
+                        ) { index ->
+                            val clip = lazyClips[index] ?: return@items
+                            val header = headerForClip(clip)
+                            val prevClip = if (index > 0) lazyClips[index - 1] else null
+                            val prevHeader = prevClip?.let { headerForClip(it) }
+                            // The first "Today" bucket is implied by the section
+                            // header directly above it — skip the duplicate label.
+                            if (header != null && header != prevHeader && !(index == 0 && header == "Today")) {
+                                DateSectionHeader(header)
+                            }
                             ClipRowItem(
                                 clip = clip,
-                                modifier = Modifier.animateItemPlacement(
-                                    spring(
-                                        dampingRatio = androidx.compose.animation.core.Spring.DampingRatioNoBouncy,
-                                        stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
-                                    )
-                                ),
-                                multiSelectMode = state.multiSelectMode,
-                                selectedIds = state.selectedIds,
-                                justCopied = state.justCopiedForId == clip.id,
+                                modifier = Modifier.animateItem(itemAnimSpec),
+                                multiSelectMode = multiSelectMode,
+                                selectedIds = selectedIds,
+                                justCopied = justCopiedForId == clip.id,
                                 listState = listState,
-                                reorderList = reorderList,
                                 onCopy = onCopy,
                                 onPin = onPin,
                                 onFavorite = onFavorite,
                                 onDelete = onDelete,
                                 onClick = { onOpenDetail(clip.id) },
                                 onLongPress = { onLongPressEnterSelect(clip) },
-                                onReorderPinned = { newOrder ->
-                                    scope.launch { viewModel.persistPinnedOrder(newOrder) }
-                                },
                                 onEnterMultiSelect = { viewModel.enterMultiSelect(clip.id) },
                                 onToggleSelection = { viewModel.toggleSelection(clip.id) },
                                 onShowCachedUrlTitle = { viewModel.showCachedUrlTitle(clip.id, clip.content) },
                                 onFetchUrlTitle = { viewModel.fetchUrlTitle(clip.id, clip.content) },
-                                onDragStateChange = { dragInProgress = it },
                                 urlTitle = urlTitles[clip.id]
                             )
                         }
                     }
-                    items(
-                        count = lazyClips.itemCount,
-                        key = lazyClips.itemKey { "paged_${it.id}" },
-                        contentType = lazyClips.itemContentType { "clip" }
-                    ) { index ->
-                        val clip = lazyClips[index] ?: return@items
-                        val header = headerForClip(clip)
-                        val prevClip = if (index > 0) lazyClips[index - 1] else null
-                        val prevHeader = prevClip?.let { headerForClip(it) }
-                        if (header != null && header != prevHeader) {
-                            DateSectionHeader(header)
-                        }
-                        ClipRowItem(
-                            clip = clip,
-                            modifier = Modifier.animateItemPlacement(
-                                spring(
-                                    dampingRatio = androidx.compose.animation.core.Spring.DampingRatioNoBouncy,
-                                    stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
-                                )
-                            ),
-                            multiSelectMode = state.multiSelectMode,
-                            selectedIds = state.selectedIds,
-                            justCopied = state.justCopiedForId == clip.id,
-                            listState = listState,
-                            reorderList = reorderList,
-                            onCopy = onCopy,
-                            onPin = onPin,
-                            onFavorite = onFavorite,
-                            onDelete = onDelete,
-                            onClick = { onOpenDetail(clip.id) },
-                            onLongPress = { onLongPressEnterSelect(clip) },
-                            onReorderPinned = { newOrder ->
-                                scope.launch { viewModel.persistPinnedOrder(newOrder) }
-                            },
-                            onEnterMultiSelect = { viewModel.enterMultiSelect(clip.id) },
-                            onToggleSelection = { viewModel.toggleSelection(clip.id) },
-                            onShowCachedUrlTitle = { viewModel.showCachedUrlTitle(clip.id, clip.content) },
-                            onFetchUrlTitle = { viewModel.fetchUrlTitle(clip.id, clip.content) },
-                            onDragStateChange = { dragInProgress = it },
-                            urlTitle = urlTitles[clip.id]
-                        )
-                    }
-             }
-         }
+            }
             // Hero copy animation overlay
             CopyHeroOverlay(
                 state = hero,
@@ -491,6 +617,14 @@ fun HomeScreen(
             dismissButton = {
                 androidx.compose.material3.TextButton(onClick = { showClearDialog = false }) { Text("Cancel") }
             }
+        )
+    }
+
+    if (showTypeFilterSheet) {
+        TypeFilterSheet(
+            activeFilter = activeFilter,
+            onFilterChange = viewModel::setFilter,
+            onDismiss = { showTypeFilterSheet = false }
         )
     }
 
@@ -535,6 +669,27 @@ fun HomeScreen(
             onDismiss = { showQueueSheet = false }
         )
     }
+
+    if (showReorderSheet) {
+        PinnedReorderSheet(
+            clips = pinnedClips,
+            onDismiss = { showReorderSheet = false },
+            onConfirm = { orderedIds ->
+                haptics.medium()
+                viewModel.persistPinnedOrder(orderedIds)
+                showReorderSheet = false
+            }
+        )
+    }
+}
+
+/**
+ * Non-snapshot holder for a card's last-known root position. Written from
+ * onGloballyPositioned (which fires constantly while scrolling) and read
+ * only when launching the copy hero animation.
+ */
+private class CardPositionHolder {
+    var offset: Offset? = null
 }
 
 /**
@@ -553,19 +708,16 @@ private fun ClipRowItem(
     selectedIds: Set<Long>,
     justCopied: Boolean,
     listState: androidx.compose.foundation.lazy.LazyListState,
-    reorderList: androidx.compose.runtime.snapshots.SnapshotStateList<Clip>,
     onCopy: (Clip, () -> Offset?) -> Unit,
     onPin: (Clip) -> Unit,
     onFavorite: (Clip) -> Unit,
     onDelete: (Clip) -> Unit,
     onClick: () -> Unit,
     onLongPress: () -> Unit,
-    onReorderPinned: (List<Long>) -> Unit,
     onEnterMultiSelect: () -> Unit,
     onToggleSelection: () -> Unit,
     onShowCachedUrlTitle: () -> Unit,
     onFetchUrlTitle: () -> Unit,
-    onDragStateChange: (Boolean) -> Unit,
     urlTitle: String? = null
 ) {
     if (clip.type == ClipType.URL && !clip.isLocked) {
@@ -599,15 +751,12 @@ private fun ClipRowItem(
                 justCopied = justCopied,
                 multiSelectMode = multiSelectMode,
                 listState = listState,
-                reorderList = reorderList,
                 onCopy = onCopy,
                 onPin = onPin,
                 onFavorite = onFavorite,
                 onDelete = onDelete,
                 onClick = onClickWithFetch,
                 onLongPress = onLongPress,
-                onReorderPinned = onReorderPinned,
-                onDragStateChange = onDragStateChange,
                 urlTitle = urlTitle
             )
         }
@@ -625,36 +774,19 @@ private fun ClipRowWithHero(
     justCopied: Boolean,
     multiSelectMode: Boolean,
     listState: androidx.compose.foundation.lazy.LazyListState,
-    reorderList: androidx.compose.runtime.snapshots.SnapshotStateList<Clip>,
     onCopy: (Clip, () -> Offset?) -> Unit,
     onPin: (Clip) -> Unit,
     onFavorite: (Clip) -> Unit,
     onDelete: (Clip) -> Unit,
     onClick: () -> Unit,
     onLongPress: () -> Unit,
-    onReorderPinned: (List<Long>) -> Unit,
-    onDragStateChange: (Boolean) -> Unit,
     urlTitle: String? = null
 ) {
-    val cardPosition = remember { mutableStateOf<Offset?>(null) }
-
-    // Only pinned clips can be drag-reordered, and only outside selection mode.
-    val dragModifier = if (clip.isPinned && !multiSelectMode) {
-        Modifier.draggableItem(
-            listState = listState,
-            itemId = clip.id,
-            items = reorderList,
-            equalityOf = { it.id },
-            onDragStart = { onDragStateChange(true) },
-            onDragEnd = {
-                onDragStateChange(false)
-                // Persist the complete pinned order once per drag.
-                onReorderPinned(reorderList.filter { it.isPinned }.map { it.id })
-            }
-        )
-    } else {
-        Modifier
-    }
+    // Plain (non-snapshot) holder for the card position: onGloballyPositioned
+    // fires on every scroll frame, and a MutableState here would recompose
+    // this card ~60x/s while scrolling. The value is only read at copy time
+    // for the hero animation, so snapshot observation is pure overhead.
+    val cardPosition = remember { CardPositionHolder() }
 
     SwipeableRow(
         onSwipe = { action ->
@@ -664,17 +796,16 @@ private fun ClipRowWithHero(
             }
         }
     ) {
-        Box(
-            modifier = Modifier
-                .onGloballyPositioned { coords ->
-                    cardPosition.value = coords.positionInRoot()
-                }
-                .then(dragModifier)
-        ) {
-            NormalClipCard(
-                clip = clip,
-                justCopied = justCopied,
-                onCopy = { onCopy(clip) { cardPosition.value } },
+            Box(
+                modifier = Modifier
+                    .onGloballyPositioned { coords ->
+                        cardPosition.offset = coords.positionInRoot()
+                    }
+            ) {
+                NormalClipCard(
+                    clip = clip,
+                    justCopied = justCopied,
+                    onCopy = { onCopy(clip) { cardPosition.offset } },
                 onPin = { onPin(clip) },
                 onFavorite = { onFavorite(clip) },
                 onDelete = { onDelete(clip) },
@@ -686,80 +817,8 @@ private fun ClipRowWithHero(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun NormalTopBar(
-    count: Int,
-    monitoringActive: Boolean,
-    queueSize: Int,
-    scrollBehavior: TopAppBarScrollBehavior,
-    onToggleMonitoring: () -> Unit,
-    onOpenQueue: () -> Unit
-) {
-    TopAppBar(
-        scrollBehavior = scrollBehavior,
-        title = {
-            Column {
-                Text("Clipboard", style = MaterialTheme.typography.titleLarge)
-                Text(
-                    text = "$count saved · ${if (monitoringActive) "live" else "paused"}",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        },
-        actions = {
-            IconButton(onClick = onOpenQueue) {
-                Icon(
-                    imageVector = Icons.Outlined.Queue,
-                    contentDescription = "Paste queue",
-                    tint = if (queueSize > 0) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            IconButton(onClick = onToggleMonitoring) {
-                Icon(
-                    imageVector = if (monitoringActive) Icons.Outlined.Pause else Icons.Outlined.PlayArrow,
-                    contentDescription = if (monitoringActive) "Pause monitoring" else "Resume monitoring",
-                    tint = if (monitoringActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        },
-        colors = TopAppBarDefaults.topAppBarColors(
-            containerColor = MaterialTheme.colorScheme.surface,
-            scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-        )
-    )
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun MultiSelectTopBar(
-    selectedCount: Int,
-    totalCount: Int,
-    scrollBehavior: TopAppBarScrollBehavior,
-    onSelectAll: () -> Unit,
-    onClose: () -> Unit
-) {
-    TopAppBar(
-        scrollBehavior = scrollBehavior,
-        navigationIcon = {
-            IconButton(onClick = onClose) {
-                Icon(Icons.Outlined.Close, contentDescription = "Exit selection")
-            }
-        },
-        title = { Text("$selectedCount selected", style = MaterialTheme.typography.titleLarge) },
-        actions = {
-            TextButton(onClick = onSelectAll) {
-                Text(if (selectedCount == totalCount) "Clear" else "All", style = MaterialTheme.typography.titleMedium)
-            }
-        },
-        colors = TopAppBarDefaults.topAppBarColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-            scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-        )
-    )
-}
+/** Clip types that surface a compact footer action pill (mock's "Open URL" pattern). */
+private val QUICK_ACTION_TYPES = setOf(ClipType.URL, ClipType.EMAIL, ClipType.PHONE)
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
@@ -776,6 +835,8 @@ private fun NormalClipCard(
 ) {
     val formatTime = rememberRelativeTime()
     val formatRemaining = remember { ::formatRemaining }
+    val isCode = clip.type == ClipType.CODE || clip.type == ClipType.JSON
+    val isUrl = clip.type == ClipType.URL && !clip.isLocked
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -785,14 +846,82 @@ private fun NormalClipCard(
                 contentDescription = "Clip: ${clip.preview}"
             },
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (clip.isPinned) MaterialTheme.colorScheme.primaryContainer
-            else MaterialTheme.colorScheme.surfaceVariant
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (clip.isPinned) 3.dp else 1.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
-        Column(modifier = Modifier.padding(10.dp)) {
+        Column(
+            modifier = Modifier.padding(Spacing.Lg),
+            verticalArrangement = Arrangement.spacedBy(Spacing.Sm)
+        ) {
+            // Header — type badge · label · time | favorite · pin
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(24.dp)
+                        .clip(RoundedCornerShape(7.dp))
+                        .background(MaterialTheme.colorScheme.secondaryContainer),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = typeIcon(clip.type),
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(15.dp)
+                    )
+                }
+                Spacer(Modifier.width(Spacing.Sm))
+                Text(
+                    text = clip.type.label(),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "·",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline,
+                    modifier = Modifier.padding(horizontal = Spacing.Xs)
+                )
+                Text(
+                    text = formatTime(clip.createdAt),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1
+                )
+                Spacer(Modifier.weight(1f))
+                IconButton(
+                    onClick = onFavorite,
+                    modifier = Modifier
+                        .size(32.dp)
+                        .minimumInteractiveComponentSize()
+                ) {
+                    AnimatedToggleIcon(
+                        active = clip.isFavorite,
+                        activeIcon = Icons.Filled.Favorite,
+                        inactiveIcon = Icons.Outlined.FavoriteBorder,
+                        contentDescription = "Favorite",
+                        tint = if (clip.isFavorite) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                IconButton(
+                    onClick = onPin,
+                    modifier = Modifier
+                        .size(32.dp)
+                        .minimumInteractiveComponentSize()
+                ) {
+                    AnimatedToggleIcon(
+                        active = clip.isPinned,
+                        activeIcon = Icons.Filled.PushPin,
+                        inactiveIcon = Icons.Outlined.PushPin,
+                        contentDescription = "Pin",
+                        tint = if (clip.isPinned) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
             if (clip.type == ClipType.IMAGE && clip.imageUri != null && !clip.isLocked) {
                 val density = LocalDensity.current.density
                 val reqWidth = (360 * density).toInt()
@@ -823,110 +952,94 @@ private fun NormalClipCard(
                     Spacer(Modifier.height(6.dp))
                 }
             } else {
-                Row(verticalAlignment = Alignment.Top) {
-                    Text(
-                        text = clip.preview,
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.weight(1f),
-                        maxLines = 2
-                    )
-                }
-                Spacer(Modifier.height(2.dp))
-            }
-            Row(verticalAlignment = Alignment.Top) {
-                androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
-                IconButton(
-                    onClick = onFavorite,
-                    modifier = Modifier
-                        .size(32.dp)
-                        .minimumInteractiveComponentSize()
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (isCode) MaterialTheme.colorScheme.surfaceContainerHighest
+                    else MaterialTheme.colorScheme.surfaceContainerLowest
                 ) {
-                    Icon(
-                        imageVector = if (clip.isFavorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
-                        contentDescription = "Favorite",
-                        tint = if (clip.isFavorite) MaterialTheme.colorScheme.error
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-                IconButton(
-                    onClick = onPin,
-                    modifier = Modifier
-                        .size(32.dp)
-                        .minimumInteractiveComponentSize()
-                ) {
-                    Icon(
-                        imageVector = if (clip.isPinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
-                        contentDescription = "Pin",
-                        tint = if (clip.isPinned) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp)
-                    )
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(Spacing.Md),
+                        verticalArrangement = Arrangement.spacedBy(Spacing.Xxs)
+                    ) {
+                        Text(
+                            text = clip.preview,
+                            style = if (isCode) {
+                                MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
+                            } else {
+                                MaterialTheme.typography.bodyMedium
+                            },
+                            color = if (isUrl) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurface,
+                            fontWeight = if (isUrl) FontWeight.Medium else null,
+                            maxLines = if (isCode) 4 else if (isUrl) 1 else 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        if (isUrl && !urlTitle.isNullOrBlank()) {
+                            Text(
+                                text = urlTitle,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
                 }
             }
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    TypeBadge(clip.type)
-                    Text(
-                        text = formatTime(clip.createdAt),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    if (clip.hasExpiration) {
-                        Text(
-                            text = "⏳ ${formatRemaining(clip.expiresAt!!)}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.tertiary
-                        )
-                    }
-                    if (clip.hasUseLimit) {
-                        Text(
-                            text = "${clip.useCount}/${clip.useLimit}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.tertiary
-                        )
-                    }
+                // Contextual quick action (mock footer pattern) then plain meta.
+                if (!clip.isLocked && clip.type in QUICK_ACTION_TYPES) {
+                    QuickActionPill(type = clip.type, content = clip.content)
+                    Spacer(Modifier.width(Spacing.Sm))
                 }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(
-                        onClick = onDelete,
-                        modifier = Modifier
-                            .size(32.dp)
-                            .minimumInteractiveComponentSize()
-                    ) {
-                        Icon(
-                            Icons.Outlined.Delete,
-                            contentDescription = "Delete",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                    AnimatedCopyButton(isCopied = justCopied, onClick = onCopy)
-                }
-            }
-            // Inline preview (#6)
-            val showPreview = !clip.isLocked && clip.type in setOf(
-                ClipType.COLOR_HEX, ClipType.PHONE, ClipType.EMAIL, ClipType.URL
-            )
-            if (showPreview) {
-                InlinePreview(clip.type, clip.content)
-            }
-            // URL preview title (fetched in background)
-            if (clip.type == ClipType.URL && !clip.isLocked && !urlTitle.isNullOrBlank()) {
                 Text(
-                    text = urlTitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    maxLines = 2,
-                    modifier = Modifier.padding(top = 4.dp)
+                    text = clipStatsLabel(clip),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1
                 )
+                if (clip.hasExpiration) {
+                    Text(
+                        text = "Expires in ${formatRemaining(clip.expiresAt!!)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = Spacing.Sm)
+                    )
+                }
+                if (clip.hasUseLimit) {
+                    Text(
+                        text = "${clip.useCount}/${clip.useLimit}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = Spacing.Sm)
+                    )
+                }
+                Spacer(Modifier.weight(1f))
+                IconButton(
+                    onClick = onDelete,
+                    modifier = Modifier
+                        .size(32.dp)
+                        .minimumInteractiveComponentSize()
+                ) {
+                    Icon(
+                        Icons.Outlined.Delete,
+                        contentDescription = "Delete",
+                        tint = MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                CopyPill(isCopied = justCopied, onClick = onCopy)
+            }
+            // Full-width strip only where it adds a visual the body cannot:
+            // the live colour swatch. URL / EMAIL / PHONE actions live in the
+            // footer pill above, so they no longer duplicate the body text.
+            if (!clip.isLocked && clip.type == ClipType.COLOR_HEX) {
+                InlinePreview(clip.type, clip.content)
             }
             // One-time codes get a prominent copy button
             if (clip.type == ClipType.OTP && !clip.isLocked) {
@@ -959,67 +1072,12 @@ private fun NormalClipCard(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun FilterChipRow(
-    activeFilter: ClipType?,
-    onFilterChange: (ClipType?) -> Unit,
-    favoritesOnly: Boolean,
-    onFavoritesChange: (Boolean) -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 12.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        FilterChip(
-            selected = favoritesOnly,
-            onClick = { onFavoritesChange(!favoritesOnly) },
-            label = { Text("Favorites") },
-            leadingIcon = {
-                Icon(
-                    imageVector = if (favoritesOnly) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp)
-                )
-            },
-            colors = FilterChipDefaults.filterChipColors(
-                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
-            )
-        )
-        FilterChip(
-            selected = activeFilter == null,
-            onClick = { onFilterChange(null) },
-            label = { Text("All") },
-            colors = FilterChipDefaults.filterChipColors(
-                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
-            )
-        )
-        ClipType.entries.forEach { type ->
-            FilterChip(
-                selected = activeFilter == type,
-                onClick = {
-                    onFilterChange(if (activeFilter == type) null else type)
-                },
-                label = { Text(type.label()) },
-                leadingIcon = {
-                    Icon(
-                        imageVector = typeIcon(type),
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp)
-                    )
-                },
-                colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-            )
-        }
-    }
+/** Short human summary for the card footer pill: "74 chars" / "3 lines". */
+private fun clipStatsLabel(clip: Clip): String {
+    if (clip.isLocked) return "Locked"
+    val content = clip.content
+    val lineCount = content.count { it == '\n' } + 1
+    return if (lineCount > 1) "$lineCount lines" else "${content.length} chars"
 }
 
 private fun formatRemaining(expiresAt: Long): String {
@@ -1060,17 +1118,17 @@ private fun headerForClip(clip: Clip): String? {
 @Composable
 private fun DateSectionHeader(title: String) {
     Surface(
-        color = MaterialTheme.colorScheme.surface,
+        color = androidx.compose.ui.graphics.Color.Transparent,
         modifier = Modifier.fillMaxWidth()
     ) {
         Text(
-            text = title,
+            text = title.uppercase(),
             style = MaterialTheme.typography.labelMedium.copy(
                 fontWeight = FontWeight.SemiBold,
                 letterSpacing = 1.sp
             ),
             color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp)
+            modifier = Modifier.padding(vertical = Spacing.Sm, horizontal = Spacing.Xs)
         )
     }
 }

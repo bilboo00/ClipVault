@@ -33,7 +33,7 @@ class ClipboardAccessibilityService : AccessibilityService() {
     private var lastSeen: String? = null
     private var lastSeenAt: Long = 0L
     private var lastVerifyAt: Long = 0L
-    private val monitoringEnabledCached = AtomicBoolean(true)
+    private val monitoringEnabledCached = AtomicBoolean(false)
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -62,9 +62,14 @@ class ClipboardAccessibilityService : AccessibilityService() {
         // subscribing) so the cached flag actually reflects the persisted
         // setting — otherwise the cache would always be `true`.
         scope.launch {
+            // Prime the cache immediately: the previous default-true meant
+            // up to 5 s of unwanted capture (plus spurious
+            // clearDeleteSuppressions) on every service connect when the
+            // user had monitoring disabled.
+            runCatching { monitoringEnabledCached.set(settings.observeMonitoringEnabledRaw()) }
             while (isActive) {
-                runCatching { monitoringEnabledCached.set(settings.observeMonitoringEnabledRaw()) }
                 delay(MONITORING_REFRESH_MS)
+                runCatching { monitoringEnabledCached.set(settings.observeMonitoringEnabledRaw()) }
             }
         }
     }

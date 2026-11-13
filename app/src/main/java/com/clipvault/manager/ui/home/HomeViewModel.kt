@@ -22,7 +22,6 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
@@ -34,7 +33,6 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -52,6 +50,7 @@ sealed interface HomeEvent {
     data class Deleted(val clip: ClipEntity) : HomeEvent
     data class BulkDeleted(val clips: List<ClipEntity>) : HomeEvent
     data class SavedNew(val success: Boolean) : HomeEvent
+    data object EmptyClipboard : HomeEvent
     data object SensitiveSkipped : HomeEvent
     data class ToggledPin(val nowPinned: Boolean) : HomeEvent
     data class BulkPinned(val count: Int) : HomeEvent
@@ -66,11 +65,12 @@ data class HomeUiState(
     val selectedIds: Set<Long> = emptySet(),
     val monitoringActive: Boolean = true,
     val activeFilter: ClipType? = null,
-    val favoritesOnly: Boolean = false,
+    val viewMode: HomeViewMode = HomeViewMode.ALL,
     val queueItems: List<ClipEntity> = emptyList(),
     val queueIndex: Int = 0,
     val pinnedClips: List<Clip> = emptyList(),
     val totalCount: Int = 0,
+    val favoriteCount: Int = 0,
     val loadedCount: Int = 0
 )
 
@@ -86,10 +86,18 @@ private data class QueueAndPinned(
     val items: List<ClipEntity>,
     val index: Int,
     val pinned: List<Clip>,
-    val total: Int
+    val total: Int,
+    val favorites: Int
 )
 
-@OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
+private data class FilterState(
+    val filter: ClipType?,
+    val viewMode: HomeViewMode
+)
+
+enum class HomeViewMode { ALL, PINNED, FAVORITES }
+
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val repository: ClipboardRepository,
@@ -99,13 +107,12 @@ class HomeViewModel @Inject constructor(
     @ApplicationContext private val context: android.content.Context
 ) : ViewModel() {
 
-    private     val query = MutableStateFlow("")
     private val justCopied = MutableStateFlow<Long?>(null)
     private val saving = MutableStateFlow(false)
     private val multiSelectMode = MutableStateFlow(false)
     private val selectedIds = MutableStateFlow<Set<Long>>(emptySet())
     private val activeFilter = MutableStateFlow<ClipType?>(null)
-    private val favoritesOnly = MutableStateFlow(false)
+    private val viewMode = MutableStateFlow(HomeViewMode.ALL)
 
     private val _events = MutableSharedFlow<HomeEvent>(extraBufferCapacity = 8, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     val events: SharedFlow<HomeEvent> = _events.asSharedFlow()
@@ -202,27 +209,32 @@ class HomeViewModel @Inject constructor(
     }
 
     /**
-     * Paged stream of the history list. Built from a [combine] over the three
-     * inputs the user can change (search query, type filter, favorites toggle)
-     * so any of them invalidates the PagingSource and triggers a fresh window;
-     * `cachedIn(viewModelScope)` keeps the loaded pages alive across config
-     * changes. The clips themselves are NOT in [HomeUiState] — they're consumed
-     * directly by the Composable via [collectAsLazyPagingItems].
+     * Paged stream of the history list. Built from a [combine] over the four
+     * inputs the user can change (search query, type filter, favorites toggle,
+     * pinned-only view) so any of them invalidates the PagingSource and
+     * triggers a fresh window; `cachedIn(viewModelScope)` keeps the loaded
+     * pages alive across config changes. The clips themselves are NOT in
+     * [HomeUiState] — they're consumed directly by the Composable via
+     * [collectAsLazyPagingItems].
      */
-    @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
+    @OptIn(ExperimentalCoroutinesApi::class)
     val clipsFlow: Flow<PagingData<Clip>> = combine(
-        query.debounce(150),
         activeFilter,
-        favoritesOnly
-    ) { q, filter, fav ->
-        Triple(q, filter, fav)
-    }.flatMapLatest { (q, filter, fav) ->
+        viewMode
+    ) { filter: ClipType?, mode: HomeViewMode ->
+        FilterState(filter, mode)
+    }.flatMapLatest { (filter, mode) ->
+        // The pinned tray above the list owns pinned clips, so the paged
+        // sources exclude them — otherwise every pin renders twice. (Home
+        // has no search field; SearchScreen owns the FTS flow.)
         val source: Flow<PagingData<Clip>> = when {
-            q.length >= 2 -> repository.pagingSearch(q)
-            filter != null -> repository.pagingByType(filter)
-            else -> repository.pagingAll()
+            mode == HomeViewMode.PINNED -> repository.pagingPinned()
+            filter != null -> repository.pagingByTypeUnpinned(filter)
+            else -> repository.pagingAllUnpinned()
         }
-        source.map { paging -> if (fav) paging.filter { it.isFavorite } else paging }
+        source.map { paging ->
+            if (mode == HomeViewMode.FAVORITES) paging.filter { it.isFavorite } else paging
+        }
     }.cachedIn(viewModelScope)
 
     private val loadedIds = MutableStateFlow<Set<Long>>(emptySet())
@@ -241,41 +253,43 @@ class HomeViewModel @Inject constructor(
         ) { copied, isSaving, isMulti, selected, monitoring ->
             SelectionMeta(copied, isSaving, isMulti, selected, monitoring)
         },
-        activeFilter,
-        favoritesOnly,
+        combine(activeFilter, viewMode) { filter, mode ->
+            FilterState(filter, mode)
+        },
         combine(
             queueManager.items,
             queueManager.currentIndex,
             repository.observePinned(),
-            repository.observeCount()
-        ) { items, index, pinned, total ->
-            QueueAndPinned(items, index, pinned, total)
+            repository.observeCount(),
+            repository.observeFavoriteCount()
+        ) { items, index, pinned, total, favorites ->
+            QueueAndPinned(items, index, pinned, total, favorites)
         },
         loadedIds
-    ) { meta, filter, favOnly, queueAndPinned, loaded ->
+    ) { meta, filters, queueAndPinned, loaded ->
         HomeUiState(
             justCopiedForId = meta.justCopied,
             savingNow = meta.saving,
             multiSelectMode = meta.multiSelect,
             selectedIds = meta.selected,
             monitoringActive = meta.monitoring,
-            activeFilter = filter,
-            favoritesOnly = favOnly,
+            activeFilter = filters.filter,
+            viewMode = filters.viewMode,
             queueItems = queueAndPinned.items,
             queueIndex = queueAndPinned.index,
             pinnedClips = queueAndPinned.pinned,
             totalCount = queueAndPinned.total,
+            favoriteCount = queueAndPinned.favorites,
             loadedCount = loaded.size
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeUiState())
-
-    fun setQuery(q: String) { query.value = q }
 
     fun setFilter(type: ClipType?) {
         activeFilter.value = type
     }
 
-    fun setFavoritesOnly(v: Boolean) { favoritesOnly.value = v }
+    /** Single write → single paging invalidation (two booleans caused double refreshes). */
+    fun setViewMode(mode: HomeViewMode) { viewMode.value = mode }
 
     fun toggleFavorite(clip: Clip) = viewModelScope.launch {
         repository.toggleFavorite(clip.id, !clip.isFavorite)
@@ -347,11 +361,13 @@ class HomeViewModel @Inject constructor(
                 "" to false
             }
         }
+        // Clips marked EXTRA_IS_SENSITIVE (password managers, Android 13+)
+        // must never reach history — skip save, suppression bookkeeping and
+        // all DB work, and tell the user when they tapped Save themselves.
         if (sensitive) {
-            // Clips marked EXTRA_IS_SENSITIVE (password managers, Android 13+)
-            // must never reach history — skip save and all DB work, and tell
-            // the user when they tapped Save themselves.
             if (!silent) _events.emit(HomeEvent.SensitiveSkipped)
+        } else if (content.isBlank()) {
+            if (!silent) _events.emit(HomeEvent.EmptyClipboard)
         } else {
             // Android 10+ denies clipboard reads whenever the app isn't the
             // focused window (system log: "Denying clipboard access … not in
@@ -359,6 +375,17 @@ class HomeViewModel @Inject constructor(
             // legal because we only run while RESUMED — so every time the user
             // opens/returns to the app, anything new on their clipboard lands in
             // history without them touching the FAB.
+            //
+            // Like the capture services, a clipboard that moved on to different
+            // content retires the delete-suppressions: they only exist to stop a
+            // stale pass re-adding something deleted while still on the
+            // clipboard. Without this the resume/manual path could never
+            // re-capture a deleted string, because the background service that
+            // used to do the clearing can't read on Android 10+.
+            val trimmed = content.trim()
+            if (!repository.isContentSuppressed(trimmed)) {
+                repository.clearDeleteSuppressions()
+            }
             val id = repository.saveIfNew(content, sourceLabel = if (silent) "resume" else "fab")
             if (!silent) _events.emit(HomeEvent.SavedNew(id != null))
         }
@@ -378,6 +405,12 @@ class HomeViewModel @Inject constructor(
     // ── Multi-select ─────────────────────────────────────────────────
 
     /** Long-press on a card → enter selection mode with that card pre-selected. */
+    /** Enter selection mode with an empty selection ("Batch Select" affordance). */
+    fun enterMultiSelect() {
+        multiSelectMode.value = true
+        selectedIds.value = emptySet()
+    }
+
     fun enterMultiSelect(initialId: Long) {
         if (!multiSelectMode.value) multiSelectMode.value = true
         selectedIds.value = selectedIds.value + initialId

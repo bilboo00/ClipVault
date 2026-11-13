@@ -1,15 +1,19 @@
 package com.clipvault.manager.widget
 
+import com.clipvault.manager.ui.theme.Spacing
 import android.annotation.SuppressLint
 import android.content.ClipboardManager
 import android.content.Context
+import com.clipvault.manager.R
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.datastore.preferences.core.booleanPreferencesKey
-import androidx.datastore.preferences.preferencesDataStore
+import com.clipvault.manager.data.preferences.settingsDataStore
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
+import androidx.glance.Image
+import androidx.glance.ImageProvider
 import androidx.glance.action.Action
 import androidx.glance.action.ActionParameters
 import androidx.glance.action.actionParametersOf
@@ -41,6 +45,12 @@ import com.clipvault.manager.util.ClipUtils
 import kotlinx.coroutines.flow.first
 
 // ── Colours ──────────────────────────────────────────────────────────────────
+//
+// Glance 1.1.0 doesn't ship the day/night `ColorProviders` class, so the
+// widget falls back to a single dark surface — matching the system's
+// dominant widget behaviour and the dark hero animation in the app.
+// When the wider widget surface changes, the day/night swap is a small
+// follow-up. Single source of truth lives in `ui/theme/Color.kt`.
 
 @SuppressLint("RestrictedApi")
 private val WidgetBackground = ColorProvider(0xFF14131A.toInt())
@@ -51,13 +61,14 @@ private val WidgetTextPrimary = ColorProvider(0xFFE6E6EC.toInt())
 @SuppressLint("RestrictedApi")
 private val WidgetTextSecondary = ColorProvider(0xFFBDBDC8.toInt())
 @SuppressLint("RestrictedApi")
-private val WidgetAccent = ColorProvider(0xFF7C5CFC.toInt())
-@SuppressLint("RestrictedApi")
-private val WidgetPinBadge = ColorProvider(0xFFFFD54F.toInt())
+private val WidgetAccent = ColorProvider(0xFF818CF8.toInt())
 
-// ── DataStore (same file name as SettingsManager → same process instance) ────
+// ── DataStore ────────────────────────────────────────────────────────────────
+//
+// Shares the single process-wide `settings` delegate with SettingsManager —
+// a second `preferencesDataStore` delegate for the same file would make the
+// masking read below throw and silently fall back to "not masked".
 
-private val Context.dataStore by preferencesDataStore(name = "settings")
 private val KEY_MASK = booleanPreferencesKey("mask_sensitive")
 private val KEY_BIOMETRIC = booleanPreferencesKey("require_biometric")
 
@@ -84,7 +95,7 @@ class ClipboardGlanceWidget : GlanceAppWidget() {
         Column(
             modifier = GlanceModifier
                 .fillMaxSize()
-                .padding(12.dp)
+                .padding(Spacing.Md)
                 .background(WidgetBackground)
                 .cornerRadius(20.dp)
         ) {
@@ -129,16 +140,29 @@ class ClipboardGlanceWidget : GlanceAppWidget() {
             } else {
                 val pinned = clips.filter { it.isPinned }
                 val recent = clips.filter { !it.isPinned }
+                val maxRows = if (pinned.isNotEmpty()) 3 else 5
+                val shownRecent = recent.take(maxRows)
+                val remaining = recent.size - shownRecent.size
                 Column(modifier = GlanceModifier.fillMaxWidth()) {
                     if (pinned.isNotEmpty()) {
                         SectionLabel("Pinned")
-                        pinned.take(3).forEach { WidgetRow(it, masking) }
+                        pinned.take(maxRows).forEach { WidgetRow(it, masking) }
                         if (recent.isNotEmpty()) Spacer(modifier = GlanceModifier.size(4.dp))
                     }
                     if (recent.isNotEmpty()) {
                         if (pinned.isEmpty()) SectionLabel("Recent")
-                        recent.take(if (pinned.isNotEmpty()) 3 else 5).forEach { WidgetRow(it, masking) }
+                        shownRecent.forEach { WidgetRow(it, masking) }
                     }
+                }
+                if (remaining > 0 || pinned.size > maxRows) {
+                    Spacer(modifier = GlanceModifier.size(4.dp))
+                    Text(
+                        text = "Open app for more",
+                        style = TextStyle(color = WidgetTextSecondary, fontSize = 10.sp),
+                        modifier = GlanceModifier
+                            .padding(top = Spacing.Xs)
+                            .clickable(actionLaunchMain())
+                    )
                 }
             }
         }
@@ -154,9 +178,10 @@ class ClipboardGlanceWidget : GlanceAppWidget() {
     }
 
     @Composable
+    @SuppressLint("RestrictedApi")
     private fun WidgetRow(clip: ClipEntity, masking: Boolean) {
         val display = if (clip.isLocked) {
-            "🔒 Locked"
+            "Locked"
         } else if (masking) "••••••••" else clip.content.take(40).let {
             if (clip.content.length > 40) "$it…" else it
         }
@@ -172,9 +197,10 @@ class ClipboardGlanceWidget : GlanceAppWidget() {
         ) {
             Column(modifier = GlanceModifier.defaultWeight()) {
                 if (clip.isPinned) {
-                    Text(
-                        text = "★",
-                        style = TextStyle(color = WidgetPinBadge, fontSize = 10.sp)
+                    Image(
+                        provider = ImageProvider(R.drawable.ic_widget_pin),
+                        contentDescription = "Pinned",
+                        modifier = GlanceModifier.size(12.dp)
                     )
                 }
                 Text(
@@ -182,17 +208,14 @@ class ClipboardGlanceWidget : GlanceAppWidget() {
                     style = TextStyle(color = WidgetTextPrimary, fontSize = 13.sp)
                 )
             }
-            Box(
+            Image(
+                provider = ImageProvider(R.drawable.ic_widget_copy),
+                contentDescription = "Copy",
                 modifier = GlanceModifier
                     .padding(start = 6.dp)
-                    .clickable(actionCopyClip(clip.id)),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "⟳",
-                    style = TextStyle(color = WidgetAccent, fontSize = 16.sp)
-                )
-            }
+                    .size(20.dp)
+                    .clickable(actionCopyClip(clip.id))
+            )
         }
     }
 
@@ -219,7 +242,7 @@ class ClipboardGlanceWidget : GlanceAppWidget() {
 
     private suspend fun readMasking(context: Context): Boolean =
         try {
-            val prefs = context.dataStore.data.first()
+            val prefs = context.settingsDataStore.data.first()
             prefs[KEY_MASK] == true || prefs[KEY_BIOMETRIC] == true
         } catch (_: Exception) {
             false

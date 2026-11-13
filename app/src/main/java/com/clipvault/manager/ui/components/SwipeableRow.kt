@@ -2,6 +2,7 @@
 
 package com.clipvault.manager.ui.components
 
+import com.clipvault.manager.ui.theme.Spacing
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -107,7 +108,7 @@ private fun SwipeBackground(direction: SwipeToDismissBoxValue) {
 
     val color by animateColorAsState(
         targetValue = when {
-            isPinSide -> MaterialTheme.colorScheme.tertiaryContainer
+            isPinSide -> MaterialTheme.colorScheme.primaryContainer
             isDelSide -> MaterialTheme.colorScheme.errorContainer
             else -> Color.Transparent
         },
@@ -125,7 +126,7 @@ private fun SwipeBackground(direction: SwipeToDismissBoxValue) {
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(Spacing.Sm)
         ) {
             if (isDelSide) {
                 Icon(
@@ -142,13 +143,13 @@ private fun SwipeBackground(direction: SwipeToDismissBoxValue) {
             } else if (isPinSide) {
                 androidx.compose.material3.Text(
                     "Pin",
-                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
                     style = MaterialTheme.typography.labelLarge
                 )
                 Icon(
                     Icons.Outlined.PushPin,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
                     modifier = Modifier.size(24.dp)
                 )
             }

@@ -13,6 +13,7 @@ import com.clipvault.manager.data.local.dao.DuplicateGroup
 import com.clipvault.manager.data.local.entity.ClipEntity
 import com.clipvault.manager.data.preferences.SettingsManager
 import com.clipvault.manager.data.repository.ClipboardRepository
+import com.clipvault.manager.data.security.BiometricManager
 import com.clipvault.manager.service.BubbleService
 import com.clipvault.manager.service.ClipboardMonitorService
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -36,47 +37,68 @@ data class SettingsUiState(
     val themeMode: Int = 0,
     val bubbleEnabled: Boolean = false,
     val maskSensitiveContent: Boolean = false,
-    val requireBiometric: Boolean = false
+    val requireBiometric: Boolean = false,
+    val palette: Int = 0,
+    val dynamicColors: Boolean = false
 )
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val settings: SettingsManager,
     private val repository: ClipboardRepository,
+    val biometricManager: BiometricManager,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
     /**
-     * Composed via two nested typed combines instead of a single 6-flow
+     * Composed via two nested typed combines instead of a single 8-flow
      * `combine` whose lambda receives `Array<Any?>`. The Array-based form
      * forces an unchecked cast on every emission and skips the typed
      * specialisation that the compiler applies to ≤5-flow combines, which
      * showed up as visible jank when toggling rows because every emission
      * re-boxed each preference value.
      */
+    private data class Toggles(
+        val monitoring: Boolean,
+        val bubble: Boolean,
+        val biometric: Boolean,
+        val dynamicColors: Boolean
+    )
+
+    private data class Pickers(
+        val retentionDays: Int,
+        val themeMode: Int,
+        val maskSensitive: Boolean,
+        val palette: Int
+    )
+
     val state: StateFlow<SettingsUiState> = combine(
         combine(
             settings.monitoringEnabled,
             settings.bubbleEnabled,
-            settings.requireBiometric
-        ) { monitoring, bubble, bio ->
-            Triple(monitoring, bubble, bio)
+            settings.requireBiometric,
+            settings.dynamicColors
+        ) { monitoring, bubble, bio, dynamicColors ->
+            Toggles(monitoring, bubble, bio, dynamicColors)
         },
         combine(
             settings.maxHistoryDays,
             settings.darkThemeOverride,
-            settings.maskSensitiveContent
-        ) { days, theme, mask ->
-            Triple(days, theme, mask)
+            settings.maskSensitiveContent,
+            settings.palette
+        ) { days, theme, mask, palette ->
+            Pickers(days, theme, mask, palette)
         }
-    ) { toggles, picker ->
+    ) { toggles, pickers ->
         SettingsUiState(
-            monitoringEnabled = toggles.first,
-            bubbleEnabled = toggles.second,
-            requireBiometric = toggles.third,
-            retentionDays = picker.first,
-            themeMode = picker.second,
-            maskSensitiveContent = picker.third
+            monitoringEnabled = toggles.monitoring,
+            bubbleEnabled = toggles.bubble,
+            requireBiometric = toggles.biometric,
+            dynamicColors = toggles.dynamicColors,
+            retentionDays = pickers.retentionDays,
+            themeMode = pickers.themeMode,
+            maskSensitiveContent = pickers.maskSensitive,
+            palette = pickers.palette
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState())
 
@@ -116,6 +138,22 @@ class SettingsViewModel @Inject constructor(
             settings.setTheme(mode)
         } catch (e: Exception) {
             Log.e(TAG, "setTheme($mode) failed", e)
+        }
+    }
+
+    fun setPalette(id: Int) = viewModelScope.launch {
+        try {
+            settings.setPalette(id)
+        } catch (e: Exception) {
+            Log.e(TAG, "setPalette($id) failed", e)
+        }
+    }
+
+    fun setDynamicColors(enabled: Boolean) = viewModelScope.launch {
+        try {
+            settings.setDynamicColors(enabled)
+        } catch (e: Exception) {
+            Log.e(TAG, "setDynamicColors($enabled) failed", e)
         }
     }
 

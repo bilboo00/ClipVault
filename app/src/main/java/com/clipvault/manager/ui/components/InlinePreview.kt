@@ -1,5 +1,6 @@
 package com.clipvault.manager.ui.components
 
+import com.clipvault.manager.ui.theme.Spacing
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
@@ -97,19 +98,19 @@ private fun ColorSwatch(hex: String, modifier: Modifier = Modifier) {
             .fillMaxWidth()
             .padding(top = 8.dp),
         shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surface
+        color = MaterialTheme.colorScheme.surfaceContainerLow
     ) {
         Row(
             modifier = Modifier.padding(10.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            horizontalArrangement = Arrangement.spacedBy(Spacing.Md)
         ) {
             Box(
                 modifier = Modifier
                     .size(36.dp)
                     .clip(CircleShape)
                     .background(swatch)
-                    .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f), CircleShape)
+                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
             )
             Text(
                 text = hex.uppercase(),
@@ -129,33 +130,100 @@ private fun ActionChip(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
-) {
-    Surface(
+) {    Surface(
         modifier = modifier
             .fillMaxWidth()
             .padding(top = 8.dp)
             .clickable(onClick = onClick)
             .semantics { role = Role.Button },
         shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.primaryContainer
+        color = MaterialTheme.colorScheme.secondaryContainer
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onPrimaryContainer
+                color = MaterialTheme.colorScheme.onSecondaryContainer
             )
             Text(
                 text = text,
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
                 modifier = Modifier.weight(1f),
                 maxLines = 1
+            )
+        }
+    }
+}
+
+/**
+ * Compact footer pill for URL / EMAIL / PHONE clips — the design export's
+ * contextual "Open URL" affordance, sized to sit beside the card meta
+ * instead of taking a full-width duplicate row.
+ */
+@Composable
+fun QuickActionPill(
+    type: ClipType,
+    content: String,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val label: String
+    val icon: androidx.compose.ui.graphics.vector.ImageVector
+    val launch: () -> Unit
+    when (type) {
+        ClipType.URL -> {
+            label = "Open"
+            icon = Icons.Outlined.OpenInBrowser
+            launch = {
+                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(content)))
+            }
+        }
+        ClipType.EMAIL -> {
+            label = "Email"
+            icon = Icons.Outlined.Email
+            launch = {
+                context.startActivity(Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:$content")))
+            }
+        }
+        ClipType.PHONE -> {
+            label = "Call"
+            icon = Icons.Outlined.Call
+            launch = {
+                context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$content")))
+            }
+        }
+        else -> return
+    }
+    Surface(
+        modifier = modifier
+            .height(26.dp)
+            .clickable { runCatching { launch() } }
+            .semantics { role = Role.Button },
+        shape = RoundedCornerShape(50),
+        color = MaterialTheme.colorScheme.secondaryContainer
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                modifier = Modifier.size(14.dp)
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSecondaryContainer
             )
         }
     }

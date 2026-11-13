@@ -20,16 +20,18 @@ interface ClipDao {
     fun observeAll(): Flow<List<ClipEntity>>
 
     @Query("SELECT * FROM clips ORDER BY isPinned DESC, sortOrder ASC, createdAt DESC")
-    fun pagingSourceAll(): PagingSource<Int, ClipEntity>
-
-    @Query("SELECT * FROM clips ORDER BY isPinned DESC, sortOrder ASC, createdAt DESC")
     suspend fun getAll(): List<ClipEntity>
 
-    @Query("SELECT * FROM clips WHERE type = :type ORDER BY isPinned DESC, sortOrder ASC, createdAt DESC")
-    fun observeByType(type: String): Flow<List<ClipEntity>>
+    @Query("SELECT * FROM clips WHERE isPinned = 1 ORDER BY sortOrder ASC, createdAt DESC")
+    fun pagingSourcePinned(): PagingSource<Int, ClipEntity>
 
-    @Query("SELECT * FROM clips WHERE type = :type ORDER BY isPinned DESC, sortOrder ASC, createdAt DESC")
-    fun pagingSourceByType(type: String): PagingSource<Int, ClipEntity>
+    // Unpinned variants feed the main list while the pinned tray above it
+    // shows the pins — without them every pinned clip renders twice.
+    @Query("SELECT * FROM clips WHERE isPinned = 0 ORDER BY sortOrder ASC, createdAt DESC")
+    fun pagingSourceAllUnpinned(): PagingSource<Int, ClipEntity>
+
+    @Query("SELECT * FROM clips WHERE isPinned = 0 AND type = :type ORDER BY sortOrder ASC, createdAt DESC")
+    fun pagingSourceByTypeUnpinned(type: String): PagingSource<Int, ClipEntity>
 
     @Query("UPDATE clips SET notes = :notes WHERE id = :id")
     suspend fun setNotes(id: Long, notes: String?)
@@ -51,12 +53,6 @@ interface ClipDao {
 
     @Query("DELETE FROM clips WHERE useLimit IS NOT NULL AND useCount >= useLimit AND isPinned = 0")
     suspend fun pruneExhausted(): Int
-
-    @Query("SELECT COUNT(*) FROM clips WHERE content = :content")
-    suspend fun countAllByContent(content: String): Int
-
-    @Query("SELECT * FROM clips WHERE content = :content ORDER BY createdAt DESC")
-    suspend fun findDuplicatesOf(content: String): List<ClipEntity>
 
     @Query("SELECT * FROM clips WHERE id != :keepId AND content = :content")
     suspend fun findDuplicatesExcluding(keepId: Long, content: String): List<ClipEntity>
@@ -99,9 +95,6 @@ interface ClipDao {
         if (!notesToKeep.isNullOrBlank()) setNotes(keepId, notesToKeep)
         deleteAllByIds(duplicateIds)
     }
-
-    @Query("SELECT * FROM clips WHERE content LIKE '%' || :query || '%' ESCAPE '\\' ORDER BY isPinned DESC, sortOrder ASC, createdAt DESC LIMIT 100")
-    fun search(query: String): Flow<List<ClipEntity>>
 
     @RawQuery(observedEntities = [ClipEntity::class, ClipFtsEntity::class])
     fun searchFts(query: SupportSQLiteQuery): Flow<List<ClipEntity>>
@@ -212,6 +205,10 @@ interface ClipDao {
     @Query("SELECT * FROM clips WHERE isPinned = 1 ORDER BY sortOrder ASC, createdAt DESC")
     fun observePinned(): Flow<List<ClipEntity>>
 
+    /** Pinned or favorited clips — the "Favorites & Pinned" screen's source. */
+    @Query("SELECT * FROM clips WHERE isPinned = 1 OR isFavorite = 1 ORDER BY isPinned DESC, sortOrder ASC, createdAt DESC")
+    fun observeSaved(): Flow<List<ClipEntity>>
+
     @Query("SELECT * FROM clips WHERE expiresAt IS NOT NULL AND expiresAt < :now AND isPinned = 0")
     suspend fun getExpiredBefore(now: Long): List<ClipEntity>
 
@@ -244,22 +241,22 @@ interface ClipDao {
     }
 
     @Query("SELECT COUNT(*) FROM clips")
-    suspend fun count(): Int
-
-    @Query("SELECT COUNT(*) FROM clips WHERE createdAt >= :since")
-    suspend fun countSince(since: Long): Int
-
-    @Query("SELECT type, COUNT(*) as cnt FROM clips GROUP BY type ORDER BY cnt DESC")
-    suspend fun countByType(): List<TypeCount>
-
-    @Query("SELECT SUM(LENGTH(content)) FROM clips")
-    suspend fun totalContentLength(): Long?
-
-    @Query("SELECT COUNT(*) FROM clips")
     fun observeCount(): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM clips WHERE isFavorite = 1")
+    fun observeFavoriteCount(): Flow<Int>
 
     @Query("SELECT COUNT(*) FROM clips WHERE createdAt >= :since")
     fun observeCountSince(since: Long): Flow<Int>
+
+    /**
+     * Creation timestamps since [since] — a projection only (no entity or
+     * content loading). Feeds the Stats screen's per-day activity chart,
+     * which buckets locally against local-midnight boundaries so DST and
+     * timezone changes can't skew the bars.
+     */
+    @Query("SELECT createdAt FROM clips WHERE createdAt >= :since")
+    fun observeTimestampsSince(since: Long): Flow<List<Long>>
 
     @Query("SELECT type, COUNT(*) as cnt FROM clips GROUP BY type ORDER BY cnt DESC")
     fun observeCountByType(): Flow<List<TypeCount>>

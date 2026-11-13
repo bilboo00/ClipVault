@@ -204,9 +204,6 @@ class ClipboardRepository @Inject constructor(
     fun observeAll(): Flow<List<Clip>> =
         dao.observeAll().map { list -> list.map(Clip.Companion::fromEntity) }
 
-    fun observeByType(type: ClipType): Flow<List<Clip>> =
-        dao.observeByType(type.name).map { list -> list.map(Clip.Companion::fromEntity) }
-
     /**
      * Pinned clips only — bounded by the size of the pinned tray (typically a
      * handful of rows), so a plain Flow is fine without paging.
@@ -214,8 +211,12 @@ class ClipboardRepository @Inject constructor(
     fun observePinned(): Flow<List<Clip>> =
         dao.observePinned().map { list -> list.map(Clip.Companion::fromEntity) }
 
-    fun search(query: String): Flow<List<Clip>> =
-        dao.search(query.escapeLikeQuery()).map { list -> list.map(Clip.Companion::fromEntity) }
+    /**
+     * Pinned or favorited clips — source for the Favorites & Pinned screen.
+     * Bounded in practice by how many items the user actively saves.
+     */
+    fun observeSaved(): Flow<List<Clip>> =
+        dao.observeSaved().map { list -> list.map(Clip.Companion::fromEntity) }
 
     /**
      * Paged wrapper over the full history. The PagingSource replaces the old
@@ -223,14 +224,19 @@ class ClipboardRepository @Inject constructor(
      * ViewModel pipes this through `cachedIn(viewModelScope)` so configuration
      * changes don't drop the loaded window.
      */
-    fun pagingAll(): Flow<PagingData<Clip>> = Pager(
+    fun pagingPinned(): Flow<PagingData<Clip>> = Pager(
         config = PagingConfig(pageSize = 50, prefetchDistance = 10, enablePlaceholders = false),
-        pagingSourceFactory = { dao.pagingSourceAll() }
+        pagingSourceFactory = { dao.pagingSourcePinned() }
     ).flow.map { paging -> paging.map(Clip.Companion::fromEntity) }
 
-    fun pagingByType(type: ClipType): Flow<PagingData<Clip>> = Pager(
+    fun pagingAllUnpinned(): Flow<PagingData<Clip>> = Pager(
         config = PagingConfig(pageSize = 50, prefetchDistance = 10, enablePlaceholders = false),
-        pagingSourceFactory = { dao.pagingSourceByType(type.name) }
+        pagingSourceFactory = { dao.pagingSourceAllUnpinned() }
+    ).flow.map { paging -> paging.map(Clip.Companion::fromEntity) }
+
+    fun pagingByTypeUnpinned(type: ClipType): Flow<PagingData<Clip>> = Pager(
+        config = PagingConfig(pageSize = 50, prefetchDistance = 10, enablePlaceholders = false),
+        pagingSourceFactory = { dao.pagingSourceByTypeUnpinned(type.name) }
     ).flow.map { paging -> paging.map(Clip.Companion::fromEntity) }
 
     /**
@@ -336,9 +342,11 @@ class ClipboardRepository @Inject constructor(
         for (file in candidates) {
             if (total <= quota) break
             if (file.absolutePath in pinned) continue
+            // Capture the size BEFORE deleting: length() of a deleted file is 0.
+            val size = file.length()
             if (runCatching { file.delete() }.getOrDefault(false)) {
                 runCatching { dao.clearImageUri(file.absolutePath) }
-                total -= file.length()
+                total -= size
             }
         }
     }
@@ -447,8 +455,11 @@ class ClipboardRepository @Inject constructor(
     suspend fun getByIds(ids: List<Long>): List<ClipEntity> = dao.getByIds(ids)
     suspend fun toggleFavorite(id: Long, favorite: Boolean) = dbOp { dao.setFavorite(id, favorite) }
     suspend fun updateText(id: Long, content: String) = dbOp {
+        val trimmed = content.trim()
+        // Never persist a blank replacement (e.g. an over-eager transform
+        // preview): it would leave a content-less row in history.
+        if (trimmed.isEmpty()) return@dbOp
         dao.getById(id)?.let { entity ->
-            val trimmed = content.trim()
             // Reclassify on edit so badges don't stay stale (URL → text, etc.),
             // but never flip an image clip away from IMAGE via text transforms.
             val type = if (entity.type == ClipType.IMAGE) ClipType.IMAGE
@@ -487,9 +498,6 @@ class ClipboardRepository @Inject constructor(
         suppressEntities(dao.getExhausted())
         dao.pruneExhausted()
     }
-
-    suspend fun findDuplicatesOf(content: String): List<Clip> =
-        dao.findDuplicatesOf(content).map(Clip.Companion::fromEntity)
 
     suspend fun findDuplicateGroups(): List<DuplicateGroup> = dao.findDuplicateGroups()
 
@@ -545,24 +553,16 @@ class ClipboardRepository @Inject constructor(
         dao.restoreAll(entities)
         refreshWidget()
     }
-    suspend fun count(): Int = dao.count()
-    suspend fun getAll(): List<Clip> = dao.getAll().map(Clip.Companion::fromEntity)
     suspend fun getAllEntities(): List<ClipEntity> = dao.getAll()
-    suspend fun insertForImport(entity: ClipEntity): Long = dbOp {
-        val id = dao.insert(entity)
-        if (id != -1L) refreshWidget()
-        id
-    }
-    suspend fun countSince(since: Long): Int = dao.countSince(since)
-    suspend fun countByType(): List<Pair<ClipType, Int>> =
-        dao.countByType().mapNotNull { tc ->
-            runCatching { ClipType.valueOf(tc.type) to tc.cnt }.getOrNull()
-        }
-    suspend fun totalContentBytes(): Long = dao.totalContentLength() ?: 0L
 
     fun observeCount(): Flow<Int> = dao.observeCount()
 
+    fun observeFavoriteCount(): Flow<Int> = dao.observeFavoriteCount()
+
     fun observeCountSince(since: Long): Flow<Int> = dao.observeCountSince(since)
+
+    fun observeCreationTimestampsSince(since: Long): Flow<List<Long>> =
+        dao.observeTimestampsSince(since)
 
     fun observeCountByType(): Flow<List<Pair<ClipType, Int>>> =
         dao.observeCountByType().map { rows ->
@@ -572,10 +572,6 @@ class ClipboardRepository @Inject constructor(
         }
 
     fun observeTotalContentBytes(): Flow<Long> = dao.observeTotalContentLength().map { it ?: 0L }
-
-    /** Escape SQL LIKE wildcards so user queries match literally. */
-    private fun String.escapeLikeQuery(): String =
-        replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
     private companion object {
         const val TAG = "ClipboardRepository"

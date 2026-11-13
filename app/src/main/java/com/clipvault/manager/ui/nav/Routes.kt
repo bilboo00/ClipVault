@@ -3,6 +3,7 @@ package com.clipvault.manager.ui.nav
 sealed class Route(val path: String) {
     data object Home : Route("home")
     data object Search : Route("search")
+    data object Favorites : Route("favorites")
     data object Stats : Route("stats")
     data object Settings : Route("settings")
     data object Snippets : Route("snippets")

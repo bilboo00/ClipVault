@@ -32,10 +32,10 @@ import com.clipvault.manager.data.local.entity.ClipType
 @Composable
 fun TypeBadge(type: ClipType, modifier: Modifier = Modifier) {
     val icon = typeIcon(type)
-    val tint = MaterialTheme.colorScheme.onPrimaryContainer
+    val tint = MaterialTheme.colorScheme.onSurfaceVariant
     Surface(
         shape = RoundedCornerShape(6.dp),
-        color = MaterialTheme.colorScheme.primaryContainer,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
         modifier = modifier
     ) {
         Row(

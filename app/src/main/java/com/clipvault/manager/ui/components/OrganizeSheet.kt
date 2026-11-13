@@ -1,5 +1,6 @@
 package com.clipvault.manager.ui.components
 
+import com.clipvault.manager.ui.theme.Spacing
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -53,7 +55,7 @@ fun OrganizeSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = MaterialTheme.colorScheme.surface
+        containerColor = MaterialTheme.colorScheme.surfaceContainer
     ) {
         Column(
             modifier = Modifier
@@ -64,13 +66,13 @@ fun OrganizeSheet(
             Text(
                 "Organize",
                 style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.padding(start = 24.dp, top = 8.dp, bottom = 4.dp)
+                modifier = Modifier.padding(start = 24.dp, top = Spacing.Sm, bottom = Spacing.Xs)
             )
             Text(
                 "Assign tags and collections to this clip.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = 24.dp, bottom = 12.dp)
+                modifier = Modifier.padding(start = 24.dp, bottom = Spacing.Md)
             )
 
             SectionLabel("Tags")
@@ -84,8 +86,8 @@ fun OrganizeSheet(
             } else {
                 androidx.compose.foundation.layout.FlowRow(
                     modifier = Modifier.padding(horizontal = 24.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.Sm),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.Sm)
                 ) {
                     tags.forEach { tag ->
                         val primary = MaterialTheme.colorScheme.primary
@@ -104,13 +106,22 @@ fun OrganizeSheet(
                                         .clip(CircleShape)
                                         .background(dotColor)
                                 )
-                            }
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                iconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                                selectedLeadingIconColor = MaterialTheme.colorScheme.onSecondaryContainer
+                            ),
+                            border = null
                         )
                     }
                 }
             }
 
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(Spacing.Xl))
 
             SectionLabel("Collections")
             if (collections.isEmpty()) {
@@ -123,8 +134,8 @@ fun OrganizeSheet(
             } else {
                 androidx.compose.foundation.layout.FlowRow(
                     modifier = Modifier.padding(horizontal = 24.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.Sm),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.Sm)
                 ) {
                     collections.forEach { collection ->
                         FilterChip(
@@ -137,13 +148,22 @@ fun OrganizeSheet(
                                     contentDescription = null,
                                     modifier = Modifier.size(16.dp)
                                 )
-                            }
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                iconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                                selectedLeadingIconColor = MaterialTheme.colorScheme.onSecondaryContainer
+                            ),
+                            border = null
                         )
                     }
                 }
             }
 
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(Spacing.Xxl))
 
             TextButton(
                 onClick = onDismiss,
@@ -161,6 +181,6 @@ private fun SectionLabel(text: String) {
         text = text,
         style = MaterialTheme.typography.titleMedium,
         fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
-        modifier = Modifier.padding(start = 24.dp, bottom = 8.dp)
+        modifier = Modifier.padding(start = 24.dp, bottom = Spacing.Sm)
     )
 }

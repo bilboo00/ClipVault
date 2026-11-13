@@ -2,6 +2,7 @@
 
 package com.clipvault.manager.ui.components
 
+import com.clipvault.manager.ui.theme.Spacing
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -22,9 +23,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -33,6 +36,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -91,9 +97,9 @@ fun MultiSelectClipRow(
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
             containerColor = when {
-                isSelected -> MaterialTheme.colorScheme.primaryContainer
-                clip.isPinned && !isMultiSelect -> MaterialTheme.colorScheme.primaryContainer
-                else -> MaterialTheme.colorScheme.surfaceVariant
+                isSelected || (clip.isPinned && !isMultiSelect) ->
+                    MaterialTheme.colorScheme.secondaryContainer
+                else -> MaterialTheme.colorScheme.surfaceContainer
             }
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = if (isSelected) 2.dp else 0.dp)
@@ -115,7 +121,7 @@ fun MultiSelectClipRow(
                 Spacer(modifier = Modifier.size(4.dp))
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.Sm)
                 ) {
                     TypeBadge(clip.type)
                 }
@@ -143,14 +149,17 @@ fun MultiSelectClipRow(
 }
 
 @Composable
-private fun SelectionIndicator(selected: Boolean) {
+fun SelectionIndicator(
+    selected: Boolean,
+    modifier: Modifier = Modifier
+) {
     val bg by animateColorAsState(
         targetValue = if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
         animationSpec = tween(Motion.Short),
         label = "ms-check-bg"
     )
     Box(
-        modifier = Modifier
+        modifier = modifier
             .size(24.dp)
             .clip(CircleShape)
             .background(bg)
@@ -191,7 +200,7 @@ fun MultiSelectActionBar(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(horizontal = Spacing.Lg, vertical = Spacing.Md),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
@@ -201,7 +210,7 @@ fun MultiSelectActionBar(
                     style = MaterialTheme.typography.labelLarge
                 )
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.Sm)) {
                 FilledIconButton(
                     onClick = onPin,
                     enabled = selectedCount > 0
@@ -221,4 +230,34 @@ fun MultiSelectActionBar(
             }
         }
     }
+}
+
+/** Selection-mode app bar: close + "$n selected" + select-all toggle. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun MultiSelectTopBar(
+    selectedCount: Int,
+    totalCount: Int,
+    scrollBehavior: TopAppBarScrollBehavior? = null,
+    onSelectAll: () -> Unit,
+    onClose: () -> Unit
+) {
+    TopAppBar(
+        scrollBehavior = scrollBehavior,
+        navigationIcon = {
+            IconButton(onClick = onClose) {
+                Icon(Icons.Outlined.Close, contentDescription = "Exit selection")
+            }
+        },
+        title = { Text("$selectedCount selected", style = MaterialTheme.typography.titleLarge) },
+        actions = {
+            TextButton(onClick = onSelectAll) {
+                Text(if (selectedCount == totalCount) "Clear" else "All", style = MaterialTheme.typography.titleMedium)
+            }
+        },
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = MaterialTheme.colorScheme.background,
+            scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+        )
+    )
 }

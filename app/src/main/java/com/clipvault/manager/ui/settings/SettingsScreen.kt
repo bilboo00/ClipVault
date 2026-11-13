@@ -2,6 +2,7 @@ package com.clipvault.manager.ui.settings
 
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -10,7 +11,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,45 +18,53 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowForward
 import androidx.compose.material.icons.outlined.AccessibilityNew
-import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.Archive
+import androidx.compose.material.icons.outlined.AutoDelete
 import androidx.compose.material.icons.outlined.BubbleChart
 import androidx.compose.material.icons.outlined.BugReport
+import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.DeleteForever
-import androidx.compose.material.icons.outlined.FileDownload
-import androidx.compose.material.icons.outlined.FileUpload
+import androidx.compose.material.icons.outlined.DeleteSweep
+import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.Fingerprint
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.Sell
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.RestartAlt
+import androidx.compose.material.icons.outlined.Sell
+import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.material.icons.outlined.Unarchive
+import androidx.compose.material.icons.outlined.Upload
+import androidx.compose.material.icons.outlined.VerifiedUser
 import androidx.compose.material.icons.outlined.VisibilityOff
+import androidx.compose.material.icons.outlined.Wallpaper
 import androidx.compose.material.icons.outlined.Widgets
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
@@ -65,8 +73,6 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -77,36 +83,29 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.fragment.app.FragmentActivity
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.clipvault.manager.BuildConfig
+import com.clipvault.manager.ui.theme.AppPalette
+import com.clipvault.manager.ui.theme.Spacing
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private data class IconAccent(val bg: Color, val tint: Color)
-
-private val Indigo = IconAccent(Color(0xFFEEF2FF), Color(0xFF4F46E5))
-private val Amber = IconAccent(Color(0xFFFEF3C7), Color(0xFFD97706))
-private val Blue = IconAccent(Color(0xFFDBEAFE), Color(0xFF2563EB))
-private val Violet = IconAccent(Color(0xFFEDE9FE), Color(0xFF7C3AED))
-private val Green = IconAccent(Color(0xFFDCFCE7), Color(0xFF16A34A))
-private val Pink = IconAccent(Color(0xFFFCE7F3), Color(0xFFDB2777))
-private val Slate = IconAccent(Color(0xFFF1F5F9), Color(0xFF475569))
-private val Red = IconAccent(Color(0xFFFEE2E2), Color(0xFFDC2626))
-private val Purple = IconAccent(Color(0xFFF3E8FF), Color(0xFF9333EA))
-
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     onNavigate: (String) -> Unit = {},
@@ -126,6 +125,16 @@ fun SettingsScreen(
     var exportMessage by remember { mutableStateOf<String?>(null) }
     var isExporting by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
+
+    // Debug-only crash reporter surface: appears only when something has been
+    // captured. Tap copies the newest stack trace so it can be pasted into a
+    // chat. Hoisted here because the About group is built lazily.
+    var crashReports by remember {
+        mutableStateOf(com.clipvault.manager.util.CrashReporter.pendingReports(context))
+    }
+    LaunchedEffect(Unit) {
+        crashReports = com.clipvault.manager.util.CrashReporter.pendingReports(context)
+    }
 
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("*/*")
@@ -178,71 +187,37 @@ fun SettingsScreen(
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Settings") },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
-            )
-        }
-    ) { padding ->
+    Scaffold(containerColor = MaterialTheme.colorScheme.background) { padding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
-            contentPadding = PaddingValues(top = 8.dp, bottom = 32.dp)
+            contentPadding = PaddingValues(
+                start = Spacing.Md,
+                end = Spacing.Md,
+                top = Spacing.Sm,
+                bottom = 96.dp
+            )
         ) {
-            // ── Monitoring ──────────────────────────────────────────────
-            item { SectionHeader("Monitoring") }
-            item {
-                SettingsCard {
+            item(key = "hero", contentType = "hero") { PreferencesHero() }
+
+            // ── Capture ─────────────────────────────────────────────────
+            item(key = "capture_label", contentType = "label") { SectionLabel("Capture") }
+            item(key = "capture_group", contentType = "group") {
+                SettingsGroup {
                     ToggleRow(
-                        accent = Indigo,
                         icon = Icons.Outlined.ContentPaste,
                         title = "Clipboard monitoring",
                         subtitle = "Save everything you copy while using your phone.",
                         checked = state.monitoringEnabled,
                         onCheckedChange = viewModel::setMonitoring
                     )
-                }
-            }
-
-            // ── Privacy ─────────────────────────────────────────────
-            item { SectionHeader("Privacy") }
-            item {
-                SettingsCard {
                     ToggleRow(
-                        accent = Red,
-                        icon = Icons.Outlined.VisibilityOff,
-                        title = "Mask sensitive content",
-                        subtitle = "Hide clip text in notifications, widget, and search.",
-                        checked = state.maskSensitiveContent,
-                        onCheckedChange = viewModel::setMaskSensitiveContent
-                    )
-                    HorizontalDivider()
-                    ToggleRow(
-                        accent = Purple,
-                        icon = Icons.Outlined.Fingerprint,
-                        title = "Require biometric to open",
-                        subtitle = "Lock the app behind biometric / device credential.",
-                        checked = state.requireBiometric,
-                        onCheckedChange = viewModel::setRequireBiometric
-                    )
-                }
-            }
-
-            // ── Quick access ────────────────────────────────────────────
-            item { SectionHeader("Quick access") }
-            item {
-                SettingsCard {
-                    ToggleRow(
-                        accent = Amber,
                         icon = Icons.Outlined.BubbleChart,
                         title = "Floating bubble",
                         subtitle = bubbleSubtitle(context),
                         checked = state.bubbleEnabled,
+                        tint = MaterialTheme.colorScheme.secondary,
                         onCheckedChange = { requested ->
                             if (requested && !canDrawOverlays(context)) {
                                 showBubbleDialog = true
@@ -251,143 +226,200 @@ fun SettingsScreen(
                             }
                         }
                     )
-                    SettingsDivider()
-                    ChevronRow(
-                        accent = Blue,
-                        icon = Icons.Outlined.Widgets,
-                        title = "Quick Settings tile",
-                        subtitle = "Pull down the shade → edit → drag to the bar."
-                    )
-                    SettingsDivider()
-                    ChevronRow(
-                        accent = Violet,
-                        icon = Icons.Outlined.AccessibilityNew,
-                        title = "Accessibility service",
-                        subtitle = "Optional. Capture copies in any app.",
-                        onClick = { runCatching { context.startActivity(viewModel.accessibilitySettingsIntent()) } }
-                    )
-                }
-            }
-
-            // ── Organize ─────────────────────────────────────────────────
-            item { SectionHeader("Organize") }
-            item {
-                SettingsCard {
-                    ChevronRow(
-                        accent = Indigo,
-                        icon = Icons.Outlined.Sell,
-                        title = "Tags",
-                        subtitle = "Organize clips with custom labels.",
-                        onClick = { onNavigate(com.clipvault.manager.ui.nav.Route.Tags.path) }
-                    )
-                    SettingsDivider()
-                    ChevronRow(
-                        accent = Violet,
-                        icon = Icons.Outlined.Folder,
-                        title = "Collections",
-                        subtitle = "Group related clips into folders.",
-                        onClick = { onNavigate(com.clipvault.manager.ui.nav.Route.Collections.path) }
-                    )
-                }
-            }
-
-            // ── Cleanup ─────────────────────────────────────────────────
-            item { SectionHeader("Cleanup") }
-            item {
-                SettingsCard {
-                    ChevronRow(
-                        accent = Green,
-                        icon = Icons.Outlined.AutoAwesome,
-                        title = "Auto-delete clips",
-                        subtitle = retentionLabel(state.retentionDays),
-                        onClick = { showRetentionSheet = true }
-                    )
-                    SettingsDivider()
-                    ChevronRow(
-                        accent = Pink,
-                        icon = Icons.Outlined.Palette,
-                        title = "Theme",
-                        subtitle = themeLabel(state.themeMode),
-                        onClick = { showThemeSheet = true }
-                    )
-                    SettingsDivider()
-                    ChevronRow(
-                        accent = Green,
-                        icon = Icons.Outlined.ContentCopy,
-                        title = "Find duplicates",
-                        subtitle = "Merge identical clips to keep history tidy.",
-                        onClick = {
-                            showDuplicatesDialog = true
-                        }
-                    )
-                }
-            }
-
-            // ── Data ──────────────────────────────────────────────────
-            item { SectionHeader("Data") }
-            item {
-                SettingsCard {
-                    ChevronRow(
-                        accent = Blue,
-                        icon = Icons.Outlined.FileUpload,
-                        title = "Export history",
-                        subtitle = "Save all clips as ${selectedExportFormat.extension.uppercase()}.",
-                        onClick = {
-                            if (!isExporting) showExportFormatSheet = true
-                        }
-                    )
-                    if (isExporting) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            androidx.compose.material3.CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                strokeWidth = 2.dp
-                            )
-                            Spacer(Modifier.width(10.dp))
-                            Text(
-                                "Exporting…",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                    SettingsDivider()
-                    ChevronRow(
-                        accent = Green,
-                        icon = Icons.Outlined.FileDownload,
-                        title = "Import history",
-                        subtitle = "Restore clips from a JSON backup.",
-                        onClick = { importLauncher.launch(arrayOf("application/json")) }
-                    )
-                    if (exportMessage != null) {
-                        Text(
-                            text = exportMessage!!,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                    SettingsSubCard(
+                        label = "More ways to capture (2)",
+                        modifier = Modifier.padding(
+                            horizontal = Spacing.Lg,
+                            vertical = Spacing.Sm
+                        )
+                    ) {
+                        SubRow(
+                            icon = Icons.Outlined.AccessibilityNew,
+                            title = "Accessibility service",
+                            subtitle = "Optional. Capture copies in any app.",
+                            statusLabel = "Open",
+                            onClick = {
+                                runCatching { context.startActivity(viewModel.accessibilitySettingsIntent()) }
+                            }
+                        )
+                        SubRow(
+                            icon = Icons.Outlined.Widgets,
+                            title = "Quick Settings tile",
+                            subtitle = "Pull down the shade → edit → drag to the bar.",
+                            iconTint = MaterialTheme.colorScheme.secondary
                         )
                     }
                 }
             }
 
+            // ── Privacy & security ──────────────────────────────────────
+            item(key = "privacy_label", contentType = "label") { SectionLabel("Privacy & security") }
+            item(key = "privacy_group", contentType = "group") {
+                SettingsGroup {
+                    ToggleRow(
+                        icon = Icons.Outlined.VisibilityOff,
+                        title = "Mask sensitive content",
+                        subtitle = "Hide clip text in notifications, widget, and search.",
+                        checked = state.maskSensitiveContent,
+                        onCheckedChange = viewModel::setMaskSensitiveContent
+                    )
+                    DropdownRow(
+                        icon = Icons.Outlined.AutoDelete,
+                        title = "Auto-delete clips",
+                        subtitle = "Older clips are removed automatically.",
+                        chipLabel = retentionChipLabel(state.retentionDays),
+                        onClick = { showRetentionSheet = true }
+                    )
+                    ToggleRow(
+                        icon = Icons.Outlined.Fingerprint,
+                        title = "Require biometric to open",
+                        subtitle = "Lock the app behind biometric / device credential.",
+                        checked = state.requireBiometric,
+                        tint = MaterialTheme.colorScheme.secondary,
+                        // Re-prompt biometric on every change so an attacker
+                        // can't silently flip the lock off (or on) while the
+                        // owner is away from the device. Without this the
+                        // toggle was a single tap to disable the gate.
+                        onCheckedChange = { requested ->
+                            val activity = context.findActivity()
+                            if (activity == null ||
+                                !viewModel.biometricManager.canAuthenticate(activity)
+                            ) {
+                                // No credential set on the device — never
+                                // silently allow disabling. Surface the
+                                // requirement so the user knows why.
+                                android.widget.Toast.makeText(
+                                    context,
+                                    "Set up a screen lock or biometrics first.",
+                                    android.widget.Toast.LENGTH_LONG
+                                ).show()
+                                return@ToggleRow
+                            }
+                            viewModel.biometricManager.prompt(
+                                activity = activity,
+                                title = if (requested) "Enable app lock"
+                                        else "Disable app lock",
+                                subtitle = "Authenticate to confirm this change.",
+                                onSuccess = { viewModel.setRequireBiometric(requested) },
+                                onFailure = { msg ->
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        "Authentication failed: $msg",
+                                        android.widget.Toast.LENGTH_SHORT
+                                    ).show()
+                                },
+                                onCancel = { /* leave toggle where it was */ }
+                            )
+                        }
+                    )
+                }
+            }
+
+            // ── Appearance ──────────────────────────────────────────────
+            item(key = "appearance_label", contentType = "label") { SectionLabel("Appearance") }
+            item(key = "appearance_group", contentType = "group") {
+                SettingsGroup {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        ToggleRow(
+                            icon = Icons.Outlined.Wallpaper,
+                            title = "Dynamic system colors",
+                            subtitle = "Derive the palette from your wallpaper (Android 12+).",
+                            checked = state.dynamicColors,
+                            onCheckedChange = { viewModel.setDynamicColors(it) },
+                            tint = MaterialTheme.colorScheme.secondary
+                        )
+                    }
+                    DropdownRow(
+                        icon = Icons.Outlined.Palette,
+                        title = "Theme",
+                        subtitle = "Pick the look that suits you.",
+                        chipLabel = themeLabel(state.themeMode),
+                        tint = MaterialTheme.colorScheme.primary,
+                        onClick = { showThemeSheet = true }
+                    )
+                    SettingsSubCard(
+                        label = null,
+                        modifier = Modifier.padding(
+                            horizontal = Spacing.Lg,
+                            vertical = Spacing.Sm
+                        )
+                    ) {
+                        PalettePicker(
+                            selectedId = state.palette,
+                            enabled = !state.dynamicColors,
+                            onSelect = { viewModel.setPalette(it) }
+                        )
+                    }
+                }
+            }
+
+            // ── Library ─────────────────────────────────────────────────
+            item(key = "library_label", contentType = "label") { SectionLabel("Library") }
+            item(key = "library_group", contentType = "group") {
+                SettingsGroup {
+                    SettingsRow(
+                        icon = Icons.Outlined.Sell,
+                        title = "Tags",
+                        subtitle = "Organize clips with custom labels.",
+                        onClick = { onNavigate(com.clipvault.manager.ui.nav.Route.Tags.path) }
+                    )
+                    SettingsRow(
+                        icon = Icons.Outlined.Folder,
+                        title = "Collections",
+                        subtitle = "Group related clips into folders.",
+                        tint = MaterialTheme.colorScheme.secondary,
+                        onClick = { onNavigate(com.clipvault.manager.ui.nav.Route.Collections.path) }
+                    )
+                    SettingsRow(
+                        icon = Icons.Outlined.ContentCopy,
+                        title = "Find duplicates",
+                        subtitle = "Merge identical clips to keep history tidy.",
+                        tint = MaterialTheme.colorScheme.secondary,
+                        onClick = { showDuplicatesDialog = true }
+                    )
+                }
+            }
+
+            // ── Data & backups ──────────────────────────────────────────
+            item(key = "data_label", contentType = "label") { SectionLabel("Data & backups") }
+            item(key = "data_group", contentType = "group") {
+                Column(verticalArrangement = Arrangement.spacedBy(Spacing.Sm)) {
+                    ActionPill(
+                        icon = Icons.Outlined.Archive,
+                        label = "Export history",
+                        trailingIcon = Icons.Outlined.Download,
+                        loading = isExporting,
+                        onClick = { if (!isExporting) showExportFormatSheet = true }
+                    )
+                    ActionPill(
+                        icon = Icons.Outlined.Unarchive,
+                        label = "Import history",
+                        trailingIcon = Icons.Outlined.Upload,
+                        onClick = { importLauncher.launch(arrayOf("application/json")) }
+                    )
+                    if (exportMessage != null) {
+                        Text(
+                            text = exportMessage!!,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = Spacing.Xs)
+                        )
+                    }
+                    DangerPill(
+                        icon = Icons.Outlined.DeleteSweep,
+                        label = "Delete all clips",
+                        trailingLabel = "Pinned kept",
+                        onClick = { showClearDialog = true }
+                    )
+                }
+            }
+
             // ── About ───────────────────────────────────────────────────
-            item { SectionHeader("About") }
-            item {
-                SettingsCard {
-                    // Debug: appears only when the in-app crash reporter has
-                    // captured something. Tap copies the newest stack trace
-                    // so it can be pasted straight into a chat.
-                    var crashReports by remember {
-                        mutableStateOf(com.clipvault.manager.util.CrashReporter.pendingReports(context))
-                    }
-                    LaunchedEffect(Unit) {
-                        crashReports = com.clipvault.manager.util.CrashReporter.pendingReports(context)
-                    }
+            item(key = "about_label", contentType = "label") { SectionLabel("About") }
+            item(key = "about_group", contentType = "group") {
+                SettingsGroup {
                     if (crashReports.isNotEmpty()) {
-                        ChevronRow(
-                            accent = Red,
+                        SettingsRow(
                             icon = Icons.Outlined.BugReport,
                             title = "Debug crash logs (${crashReports.size})",
                             subtitle = "Tap to copy the newest stack trace.",
@@ -406,53 +438,52 @@ fun SettingsScreen(
                                 ).show()
                             }
                         )
-                        SettingsDivider()
                     }
-                    ChevronRow(
-                        accent = Slate,
+                    SettingsRow(
                         icon = Icons.Outlined.Info,
-                        title = "Clipboard Manager",
+                        title = "ClipVault",
                         subtitle = "Version ${BuildConfig.VERSION_NAME}",
+                        tint = if (crashReports.isNotEmpty()) MaterialTheme.colorScheme.secondary
+                        else MaterialTheme.colorScheme.primary,
                         onClick = { showAboutDialog = true }
                     )
-                    SettingsDivider()
-                    ChevronRow(
-                        accent = Amber,
+                    SettingsRow(
                         icon = Icons.Outlined.RestartAlt,
                         title = "Replay setup guide",
                         subtitle = "Walk through the onboarding flow again.",
+                        tint = MaterialTheme.colorScheme.secondary,
                         onClick = { viewModel.resetOnboarding() }
-                    )
-                    SettingsDivider()
-                    ChevronRow(
-                        accent = Red,
-                        icon = Icons.Outlined.DeleteForever,
-                        title = "Delete all clips",
-                        subtitle = "Removes every saved entry. Pinned items are kept.",
-                        destructive = true,
-                        onClick = { showClearDialog = true }
                     )
                 }
             }
 
             // ── Footer ──────────────────────────────────────────────────
-            item {
+            item(key = "footer", contentType = "footer") {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 24.dp, vertical = 28.dp),
+                        .padding(top = Spacing.Xxxl, bottom = Spacing.Sm),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Outlined.VerifiedUser,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(Modifier.width(Spacing.Xs))
+                        Text(
+                            text = "ClipVault v${BuildConfig.VERSION_NAME} · Material 3",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Spacer(Modifier.height(Spacing.Xxs))
                     Text(
-                        text = "All data stays on your device",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        text = "No accounts · No tracking · No cloud",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        text = "All data stays on your device · No accounts · No tracking",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
                     )
                 }
             }
@@ -464,7 +495,7 @@ fun SettingsScreen(
     if (showBubbleDialog) {
         AlertDialog(
             onDismissRequest = { showBubbleDialog = false },
-            icon = { Icon(Icons.Outlined.BubbleChart, contentDescription = null, tint = Amber.tint) },
+            icon = { Icon(Icons.Outlined.BubbleChart, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
             title = { Text("Overlay permission") },
             text = { Text("To show the floating bubble, Android requires the \"draw over other apps\" permission.") },
             confirmButton = {
@@ -482,7 +513,7 @@ fun SettingsScreen(
     if (showClearDialog) {
         AlertDialog(
             onDismissRequest = { showClearDialog = false },
-            icon = { Icon(Icons.Outlined.DeleteForever, contentDescription = null, tint = Red.tint) },
+            icon = { Icon(Icons.Outlined.DeleteForever, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
             title = { Text("Delete all clips?") },
             text = { Text("This permanently removes every saved clip from your history.") },
             confirmButton = {
@@ -500,12 +531,12 @@ fun SettingsScreen(
     if (showAboutDialog) {
         AlertDialog(
             onDismissRequest = { showAboutDialog = false },
-            icon = { Icon(Icons.Outlined.Info, contentDescription = null, tint = Slate.tint) },
-            title = { Text("Clipboard Manager") },
+            icon = { Icon(Icons.Outlined.Info, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+            title = { Text("ClipVault") },
             text = {
                 Column {
                     Text("Version ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.bodyMedium)
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(Spacing.Sm))
                     Text(
                         "A simple clipboard history app. Everything you copy is saved locally — no account, no cloud, no tracking.",
                         style = MaterialTheme.typography.bodyMedium,
@@ -524,7 +555,7 @@ fun SettingsScreen(
         }
         AlertDialog(
             onDismissRequest = { showDuplicatesDialog = false },
-            icon = { Icon(Icons.Outlined.ContentCopy, contentDescription = null, tint = Green.tint) },
+            icon = { Icon(Icons.Outlined.ContentCopy, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
             title = { Text("Find duplicates") },
             text = {
                 if (duplicates.isEmpty()) {
@@ -540,7 +571,7 @@ fun SettingsScreen(
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        Spacer(Modifier.height(12.dp))
+                        Spacer(Modifier.height(Spacing.Md))
                         duplicates.forEach { group ->
                             Row(
                                 modifier = Modifier
@@ -607,56 +638,137 @@ fun SettingsScreen(
 
 // ── Layout primitives ─────────────────────────────────────────────
 
+/** Hero banner: primary tile + title + one-line promise. */
 @Composable
-private fun SectionHeader(text: String) {
-    Text(
-        text = text.uppercase(),
-        style = MaterialTheme.typography.labelMedium.copy(
-            fontWeight = FontWeight.SemiBold,
-            letterSpacing = 1.2.sp
-        ),
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(start = 24.dp, top = 16.dp, bottom = 8.dp)
-    )
-}
-
-@Composable
-private fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
+private fun PreferencesHero() {
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp),
-        shape = RoundedCornerShape(20.dp),
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-        ),
-        border = androidx.compose.foundation.BorderStroke(
-            1.dp,
-            MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
+            containerColor = MaterialTheme.colorScheme.secondaryContainer
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
-        Column(content = content)
+        Box {
+            // Soft decorative bloom in the corner — a radial gradient instead
+            // of Modifier.blur so it renders identically below API 31.
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .offset(x = 28.dp, y = 28.dp)
+                    .size(96.dp)
+                    .background(
+                        brush = Brush.radialGradient(
+                            colors = listOf(
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
+                                Color.Transparent
+                            )
+                        ),
+                        shape = CircleShape
+                    )
+            )
+            Row(
+                modifier = Modifier.padding(Spacing.Lg),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(MaterialTheme.colorScheme.primary),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Tune,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+                Spacer(Modifier.width(Spacing.Md))
+                Column {
+                    Text(
+                        text = "Preferences",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                    Text(
+                        text = "Tailor capture, privacy & style",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** Uppercase periwinkle section label, per the design export. */
+@Composable
+private fun SectionLabel(text: String) {
+    Text(
+        text = text.uppercase(),
+        style = MaterialTheme.typography.labelMedium,
+        fontWeight = FontWeight.SemiBold,
+        letterSpacing = 0.8.sp,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(
+            start = Spacing.Sm,
+            top = Spacing.Xl,
+            bottom = Spacing.Sm
+        )
+    )
+}
+
+/** Borderless tonal group card holding the settings rows. */
+@Composable
+private fun SettingsGroup(content: @Composable ColumnScope.() -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(vertical = Spacing.Sm),
+            content = content
+        )
+    }
+}
+
+/** 40dp icon circle used by every settings row. */
+@Composable
+private fun SettingBadge(
+    icon: ImageVector,
+    tint: Color = MaterialTheme.colorScheme.primary
+) {
+    Box(
+        modifier = Modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(20.dp)
+        )
     }
 }
 
 @Composable
-private fun SettingsDivider() {
-    HorizontalDivider(
-        modifier = Modifier.padding(start = 64.dp),
-        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
-        thickness = 1.dp
-    )
-}
-
-@Composable
 private fun ToggleRow(
-    accent: IconAccent,
     icon: ImageVector,
     title: String,
     subtitle: String,
     checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
+    onCheckedChange: (Boolean) -> Unit,
+    tint: Color = MaterialTheme.colorScheme.primary
 ) {
     // Use `toggleable` on the row and let the Switch react purely to the
     // hoisted `checked` state. The previous `.clickable { onCheckedChange(!checked) }`
@@ -666,17 +778,17 @@ private fun ToggleRow(
     // per tap — the visible cause of the "stuttery" feel on every row.
     Row(
         modifier = Modifier
+            .fillMaxWidth()
             .toggleable(
                 value = checked,
                 onValueChange = onCheckedChange,
                 role = Role.Switch
             )
-            .padding(horizontal = 16.dp, vertical = 14.dp)
-            .fillMaxWidth(),
+            .padding(horizontal = Spacing.Lg, vertical = Spacing.Sm),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        IconBadge(accent, icon)
-        Spacer(Modifier.width(16.dp))
+        SettingBadge(icon, tint)
+        Spacer(Modifier.width(Spacing.Md))
         Column(modifier = Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
             Text(
@@ -685,6 +797,7 @@ private fun ToggleRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
+        Spacer(Modifier.width(Spacing.Sm))
         Switch(
             checked = checked,
             onCheckedChange = null,
@@ -697,32 +810,29 @@ private fun ToggleRow(
 }
 
 @Composable
-private fun ChevronRow(
-    accent: IconAccent,
+private fun SettingsRow(
     icon: ImageVector,
     title: String,
     subtitle: String,
     onClick: (() -> Unit)? = null,
-    destructive: Boolean = false
+    tint: Color = MaterialTheme.colorScheme.primary
 ) {
-    val clickableModifier = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier
-    Row(
-        modifier = clickableModifier
+    val clickableModifier = if (onClick != null) {
+        Modifier
+            .clickable(onClick = onClick)
             .semantics { role = Role.Button }
-            .padding(horizontal = 16.dp, vertical = 14.dp)
-            .fillMaxWidth(),
+    } else Modifier
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(clickableModifier)
+            .padding(horizontal = Spacing.Lg, vertical = Spacing.Sm),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        IconBadge(accent, icon)
-        Spacer(Modifier.width(16.dp))
+        SettingBadge(icon, tint)
+        Spacer(Modifier.width(Spacing.Md))
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                title,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Medium,
-                color = if (destructive) MaterialTheme.colorScheme.error
-                else MaterialTheme.colorScheme.onSurface
-            )
+            Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
             Text(
                 subtitle,
                 style = MaterialTheme.typography.bodyMedium,
@@ -740,22 +850,315 @@ private fun ChevronRow(
     }
 }
 
+/** Row whose trailing control is a tappable value chip (auto-delete, theme). */
 @Composable
-private fun IconBadge(accent: IconAccent, icon: ImageVector) {
-    // Tint-at-alpha background adapts to light/dark/AMOLED schemes (no hardcoded pastels).
-    Box(
+private fun DropdownRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    chipLabel: String,
+    onClick: () -> Unit,
+    tint: Color = MaterialTheme.colorScheme.secondary
+) {
+    Row(
         modifier = Modifier
-            .size(40.dp)
-            .clip(CircleShape)
-            .background(accent.tint.copy(alpha = 0.16f)),
-        contentAlignment = Alignment.Center
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .semantics { role = Role.Button }
+            .padding(horizontal = Spacing.Lg, vertical = Spacing.Sm),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        SettingBadge(icon, tint)
+        Spacer(Modifier.width(Spacing.Md))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Spacer(Modifier.width(Spacing.Sm))
+        ValueChip(chipLabel)
+    }
+}
+
+/** 36dp rounded value chip with a chevron. */
+@Composable
+private fun ValueChip(label: String) {
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh
+    ) {
+        Row(
+            modifier = Modifier
+                .height(36.dp)
+                .padding(horizontal = Spacing.Md),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Spacing.Xs)
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1
+            )
+            Icon(
+                imageVector = Icons.Outlined.ExpandMore,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+    }
+}
+
+/** Inset sub-card used to tuck secondary rows inside a group card. */
+@Composable
+private fun SettingsSubCard(
+    label: String?,
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow
+    ) {
+        Column(modifier = Modifier.padding(Spacing.Md)) {
+            if (label != null) {
+                Text(
+                    text = label.uppercase(),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Medium,
+                    letterSpacing = 0.6.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(Spacing.Xs))
+            }
+            content()
+        }
+    }
+}
+
+/** Compact icon + text row inside a [SettingsSubCard]. */
+@Composable
+private fun SubRow(
+    icon: ImageVector,
+    title: String,
+    iconTint: Color = MaterialTheme.colorScheme.primary,
+    subtitle: String? = null,
+    statusLabel: String? = null,
+    onClick: (() -> Unit)? = null
+) {
+    val clickableModifier = if (onClick != null) {
+        Modifier
+            .clickable(onClick = onClick)
+            .semantics { role = Role.Button }
+    } else Modifier
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(clickableModifier)
+            .padding(vertical = Spacing.Xs),
+        verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = accent.tint,
-            modifier = Modifier.size(20.dp)
+            tint = iconTint,
+            modifier = Modifier.size(18.dp)
         )
+        Spacer(Modifier.width(Spacing.Sm))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+            if (subtitle != null) {
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        if (statusLabel != null) {
+            Spacer(Modifier.width(Spacing.Sm))
+            Text(
+                text = statusLabel,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+    }
+}
+
+/**
+ * Interactive accent-palette picker — one swatch per palette, checkmark on
+ * the active one, palette name trailing. Dimmed and frozen while dynamic
+ * (wallpaper) colours are enabled, since those bypass the palette entirely.
+ */
+@Composable
+private fun PalettePicker(
+    selectedId: Int,
+    enabled: Boolean,
+    onSelect: (Int) -> Unit
+) {
+    val active = AppPalette.fromId(selectedId)
+    val dim = if (enabled) 1f else 0.4f
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(
+            modifier = Modifier.weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.Md),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            AppPalette.entries.forEach { palette ->
+                val isSelected = palette.id == active.id
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .alpha(dim)
+                        .clip(CircleShape)
+                        .background(palette.light.primary)
+                        .selectable(
+                            selected = isSelected,
+                            enabled = enabled,
+                            role = Role.RadioButton,
+                            onClick = { onSelect(palette.id) }
+                        )
+                        .semantics {
+                            contentDescription = "${palette.label} palette"
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (isSelected) {
+                        Icon(
+                            imageVector = Icons.Outlined.Check,
+                            contentDescription = null,
+                            tint = palette.light.onPrimary,
+                            modifier = Modifier.size(15.dp)
+                        )
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.width(Spacing.Sm))
+        Text(
+            text = if (enabled) "${active.label} (Active)" else active.label,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.primary,
+            maxLines = 1
+        )
+    }
+}
+
+/** Full-width pill action, optionally showing an inline progress spinner. */
+@Composable
+private fun ActionPill(
+    icon: ImageVector,
+    label: String,
+    onClick: () -> Unit,
+    trailingIcon: ImageVector? = null,
+    loading: Boolean = false
+) {
+    Surface(
+        onClick = onClick,
+        enabled = !loading,
+        shape = RoundedCornerShape(50),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp)
+                .padding(horizontal = Spacing.Lg),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (loading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            } else {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            Spacer(Modifier.width(Spacing.Sm))
+            Text(
+                text = if (loading) "Exporting…" else label,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Medium,
+                color = if (loading) MaterialTheme.colorScheme.onSurfaceVariant
+                else MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f)
+            )
+            if (trailingIcon != null && !loading) {
+                Icon(
+                    imageVector = trailingIcon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+    }
+}
+
+/** Destructive pill with a small trailing note pill, per the design export. */
+@Composable
+private fun DangerPill(
+    icon: ImageVector,
+    label: String,
+    trailingLabel: String,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(50),
+        color = MaterialTheme.colorScheme.errorContainer
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp)
+                .padding(horizontal = Spacing.Lg),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(Modifier.width(Spacing.Sm))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.weight(1f)
+            )
+            Surface(
+                shape = RoundedCornerShape(50),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.55f)
+            ) {
+                Text(
+                    text = trailingLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(horizontal = Spacing.Sm, vertical = Spacing.Xxs)
+                )
+            }
+        }
     }
 }
 
@@ -772,7 +1175,7 @@ private fun RetentionPickerSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = state,
-        containerColor = MaterialTheme.colorScheme.surface
+        containerColor = MaterialTheme.colorScheme.surfaceContainer
     ) {
         Column(
             modifier = Modifier
@@ -816,7 +1219,7 @@ private fun ThemePickerSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = state,
-        containerColor = MaterialTheme.colorScheme.surface
+        containerColor = MaterialTheme.colorScheme.surfaceContainer
     ) {
         Column(
             modifier = Modifier
@@ -891,13 +1294,10 @@ private fun bubbleSubtitle(context: Context): String {
 private fun canDrawOverlays(context: Context): Boolean =
     Settings.canDrawOverlays(context)
 
-private fun retentionLabel(days: Int): String = when (days) {
+private fun retentionChipLabel(days: Int): String = when (days) {
     0 -> "Never"
-    7 -> "After 7 days"
-    30 -> "After 30 days"
-    90 -> "After 90 days"
-    365 -> "After 1 year"
-    else -> "After $days days"
+    365 -> "1 year"
+    else -> "$days days"
 }
 
 private fun themeLabel(mode: Int): String = when (mode) {
@@ -906,6 +1306,16 @@ private fun themeLabel(mode: Int): String = when (mode) {
     2 -> "Dark"
     3 -> "AMOLED Black"
     else -> "Follow system"
+}
+
+/** Walk the ContextWrapper chain looking for a hosting FragmentActivity. */
+private fun Context.findActivity(): FragmentActivity? {
+    var ctx = this
+    while (ctx is android.content.ContextWrapper) {
+        if (ctx is FragmentActivity) return ctx
+        ctx = ctx.baseContext
+    }
+    return null
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -919,7 +1329,7 @@ private fun ExportFormatPickerSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = state,
-        containerColor = MaterialTheme.colorScheme.surface
+        containerColor = MaterialTheme.colorScheme.surfaceContainer
     ) {
         Column(
             modifier = Modifier

@@ -8,7 +8,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -26,7 +25,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.Delete
@@ -36,7 +34,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -62,8 +59,13 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.clipvault.manager.haptic.rememberHaptics
 import com.clipvault.manager.data.local.entity.SnippetEntity
+import com.clipvault.manager.ui.components.EmptyStateWithOrb
+import com.clipvault.manager.ui.components.SaveFab
+import com.clipvault.manager.ui.components.tonalSearchFieldColors
+import com.clipvault.manager.ui.theme.Motion
+import com.clipvault.manager.ui.theme.Spacing
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun SnippetsScreen(
     viewModel: SnippetsViewModel = hiltViewModel()
@@ -74,19 +76,20 @@ fun SnippetsScreen(
     var pendingDelete by remember { mutableStateOf<SnippetEntity?>(null) }
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
                 title = { Text("Snippets") },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+                    containerColor = MaterialTheme.colorScheme.background,
+                    scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh
                 )
             )
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(
+            SaveFab(
                 onClick = { haptics.medium(); viewModel.openEditor() },
-                icon = { Icon(Icons.Outlined.Add, contentDescription = null) },
-                text = { Text("New snippet") }
+                label = "New snippet"
             )
         }
     ) { padding ->
@@ -100,9 +103,10 @@ fun SnippetsScreen(
                 onValueChange = viewModel::setQuery,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                    .padding(horizontal = Spacing.Md, vertical = Spacing.Sm),
                 placeholder = { Text("Search snippets") },
                 shape = RoundedCornerShape(28.dp),
+                colors = tonalSearchFieldColors(),
                 leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
                 trailingIcon = {
                     AnimatedVisibility(
@@ -119,24 +123,34 @@ fun SnippetsScreen(
             )
             when {
                 state.snippets.isEmpty() && state.query.isBlank() ->
-                    EmptyHint(
+                    EmptyStateWithOrb(
                         icon = Icons.Outlined.ContentPaste,
                         title = "No snippets yet",
-                        subtitle = "Save reusable text — emails, addresses, replies."
+                        subtitle = "Save reusable text — emails, addresses, replies.",
+                        actionLabel = "New snippet",
+                        onAction = { viewModel.openEditor() },
+                        modifier = Modifier.fillMaxSize()
                     )
                 state.snippets.isEmpty() ->
-                    EmptyHint(
+                    EmptyStateWithOrb(
                         icon = Icons.Outlined.Search,
                         title = "No matches",
-                        subtitle = "Nothing found for \"${state.query}\"."
+                        subtitle = "Nothing found for \"${state.query}\".",
+                        modifier = Modifier.fillMaxSize()
                     )
                 else -> {
                     LazyColumn(
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        contentPadding = PaddingValues(horizontal = Spacing.Md, vertical = Spacing.Sm),
+                        verticalArrangement = Arrangement.spacedBy(Spacing.Sm)
                     ) {
-                        items(state.snippets, key = { it.id }) { snippet ->
+                        items(
+                            items = state.snippets,
+                            key = { it.id }
+                        ) { snippet ->
                             SnippetCard(
+                                modifier = Modifier.animateItem(
+                                    placementSpec = androidx.compose.animation.core.tween(durationMillis = 250)
+                                ),
                                 snippet = snippet,
                                 onCopy = {
                                     haptics.success()
@@ -193,18 +207,18 @@ fun SnippetsScreen(
 @Composable
 private fun SnippetCard(
     snippet: SnippetEntity,
+    modifier: Modifier = Modifier,
     onCopy: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
+            containerColor = MaterialTheme.colorScheme.surfaceContainer
         ),
-        elevation = CardDefaults.cardElevation(1.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        elevation = CardDefaults.cardElevation(1.dp)
     ) {
         Column(
             modifier = Modifier
@@ -313,39 +327,4 @@ private fun SnippetEditorDialog(
             TextButton(onClick = onDismiss) { Text("Cancel") }
         }
     )
-}
-
-@Composable
-private fun EmptyHint(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    title: String,
-    subtitle: String
-) {
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.padding(32.dp).alpha(0.8f)
-        ) {
-            Icon(
-                icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(48.dp)
-            )
-            Spacer(Modifier.size(12.dp))
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium
-            )
-            Spacer(Modifier.size(4.dp))
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
 }

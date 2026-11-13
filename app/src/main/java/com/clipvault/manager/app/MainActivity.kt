@@ -19,6 +19,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -47,6 +48,7 @@ import com.clipvault.manager.data.security.BiometricManager
 import com.clipvault.manager.util.ImageCopier
 import kotlinx.coroutines.flow.MutableStateFlow
 import com.clipvault.manager.ui.detail.ClipDetailScreen
+import com.clipvault.manager.ui.favorites.FavoritesScreen
 import com.clipvault.manager.ui.home.HomeScreen
 import com.clipvault.manager.ui.nav.ClipVaultBottomBar
 import com.clipvault.manager.ui.nav.Route
@@ -154,10 +156,13 @@ class MainActivity : FragmentActivity() {
                 if (!appLocked) hasPromptedThisLock = false
             }
 
-            ClipboardManagerTheme(themeOverride = settingsState.themeMode) {
+            ClipboardManagerTheme(
+                themeOverride = settingsState.themeMode,
+                dynamicColor = settingsState.dynamicColors,
+                palette = com.clipvault.manager.ui.theme.AppPalette.fromId(settingsState.palette)
+            ) {
                 if (appLocked && requireBiometric && canAuthenticate) {
                     LockScreen(
-                        activity = this@MainActivity,
                         canAuthenticate = canAuthenticate,
                         onAuthenticate = {
                             biometricManager.prompt(
@@ -198,6 +203,7 @@ class MainActivity : FragmentActivity() {
                     }
 
                     Scaffold(
+                        containerColor = MaterialTheme.colorScheme.background,
                         bottomBar = {
                             if (currentRoute != Route.Detail.path &&
                                 currentRoute != Route.Tags.path &&
@@ -247,11 +253,22 @@ class MainActivity : FragmentActivity() {
                                 HomeScreen(
                                     onOpenDetail = { clipId ->
                                         nav.navigate(Route.Detail.build(clipId))
+                                    },
+                                    onOpenSearch = {
+                                        nav.navigate(Route.Search.path) { launchSingleTop = true }
                                     }
                                 )
                             }
                             composable(Route.Search.path) {
                                 SearchScreen(
+                                    onOpenDetail = { clipId ->
+                                        nav.navigate(Route.Detail.build(clipId))
+                                    },
+                                    onBack = { nav.popBackStack() }
+                                )
+                            }
+                            composable(Route.Favorites.path) {
+                                FavoritesScreen(
                                     onOpenDetail = { clipId ->
                                         nav.navigate(Route.Detail.build(clipId))
                                     }

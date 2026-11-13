@@ -32,7 +32,7 @@ data class Clip(
         get() = useLimit != null
 
     companion object {
-        const val LOCKED_PLACEHOLDER = "🔒 Locked"
+        const val LOCKED_PLACEHOLDER = "Locked"
 
         fun fromEntity(e: ClipEntity) = Clip(
             id = e.id,

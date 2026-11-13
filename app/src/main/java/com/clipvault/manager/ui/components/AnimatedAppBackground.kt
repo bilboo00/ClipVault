@@ -1,29 +1,15 @@
 package com.clipvault.manager.ui.components
 
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.LocalLifecycleOwner
 
 import com.clipvault.manager.ui.theme.BrandAmoledGlow
 import com.clipvault.manager.ui.theme.BrandDeep
@@ -32,16 +18,24 @@ import com.clipvault.manager.ui.theme.BrandPink
 import com.clipvault.manager.ui.theme.BrandViolet
 
 /**
- * Full-screen animated brand gradient that sits behind every screen.
+ * Full-screen brand gradient that sits behind every screen.
  *
  * Two soft "blobs" of brand colour drift slowly across the surface; they're
- * rendered with Multiply (light theme) or Screen (dark / AMOLED) blend so
- * the underlying Material surface still drives the page chrome.
+ * rendered with Multiply (light theme) or Screen (dark) blend so the
+ * underlying Material surface still drives the page chrome.
+ *
+ * AMOLED skips this entirely — pure black wins for OLED battery, and the
+ * blend-mode screen pass was the dominant cost in dark mode. Skipping it
+ * drops a fullscreen radial-gradient Canvas from every transition.
  *
  * Performance:
- *  • Only ticks while the host lifecycle is at least STARTED.
- *  • Low-frequency animation (~8 s), one pass on the canvas.
- *  • Two animated values total → no recomposition of siblings.
+ *  • The gradient is STATIC — no infinite transition. Every screen Scaffold
+ *    paints an opaque background today, so the blobs are fully covered and an
+ *    always-on animation would burn GPU every frame for zero visible effect
+ *    (this showed up as app-wide sluggishness on low-end devices).
+ *  • If surfaces ever go translucent again, re-introduce the phase animation
+ *    (tween 8000ms, LinearEasing, Reverse) driven only while STARTED.
+ *  • Single Canvas, one draw pass, no recomposition cost after first draw.
  */
 @Composable
 fun AnimatedAppBackground(
@@ -50,44 +44,11 @@ fun AnimatedAppBackground(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
-    var running by remember {
-        mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
-    }
-    DisposableEffect(lifecycle) {
-        val obs = androidx.lifecycle.LifecycleEventObserver { _, e ->
-            running = when (e) {
-                Lifecycle.Event.ON_START, Lifecycle.Event.ON_RESUME -> true
-                Lifecycle.Event.ON_STOP, Lifecycle.Event.ON_PAUSE -> false
-                else -> running
-            }
-        }
-        lifecycle.addObserver(obs)
-        onDispose { lifecycle.removeObserver(obs) }
-    }
-
-    val transition = rememberInfiniteTransition(label = "app-bg")
-    val phase by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 8000, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "phase"
-    )
-
     Box(modifier = modifier.fillMaxSize()) {
-        if (running) {
+        if (!isAmoled) {
             Canvas(modifier = Modifier.fillMaxSize()) {
-                // Read `phase` HERE, inside the draw lambda — a state read
-                // during the draw phase invalidates ONLY the draw pass, so
-                // this composable (and the entire `content` subtree it wraps)
-                // no longer recomposes every animation frame. Reading it in
-                // composition was rebuilding the whole screen wrapper ~60×/s
-                // and showed up as app-wide sluggishness.
-                val t = if (running) phase else 0f
-                drawBrandBackground(t = t, isDark = isDark, isAmoled = isAmoled)
+                // Fixed midpoint of the old drift range.
+                drawBrandBackground(t = 0.5f, isDark = isDark, isAmoled = isAmoled)
             }
         }
         content()

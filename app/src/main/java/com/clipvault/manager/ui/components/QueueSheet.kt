@@ -1,5 +1,6 @@
 package com.clipvault.manager.ui.components
 
+import com.clipvault.manager.ui.theme.Spacing
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -59,7 +60,7 @@ fun QueueSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = MaterialTheme.colorScheme.surface
+        containerColor = MaterialTheme.colorScheme.surfaceContainer
     ) {
         Column(
             modifier = Modifier
@@ -91,22 +92,22 @@ fun QueueSheet(
             } else {
                 LazyColumn(
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                        horizontal = 16.dp, vertical = 8.dp
+                        horizontal = Spacing.Lg, vertical = Spacing.Sm
                     ),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                    verticalArrangement = Arrangement.spacedBy(Spacing.Xs)
                 ) {
                     itemsIndexed(items, key = { _, item -> item.id }) { index, item ->
                         val isNext = index == currentIndex
                         Card(
-                            shape = RoundedCornerShape(14.dp),
+                            shape = RoundedCornerShape(Spacing.Md),
                             colors = CardDefaults.cardColors(
                                 containerColor = if (isNext)
-                                    MaterialTheme.colorScheme.primaryContainer
-                                else MaterialTheme.colorScheme.surfaceVariant
+                                    MaterialTheme.colorScheme.secondaryContainer
+                                else MaterialTheme.colorScheme.surfaceContainerHigh
                             )
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                modifier = Modifier.padding(horizontal = Spacing.Md, vertical = Spacing.Sm),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Column(modifier = Modifier.weight(1f).clickable { onCopy(item) }) {
@@ -114,9 +115,8 @@ fun QueueSheet(
                                         if (isNext) "NEXT" else "#${index + 1}",
                                         style = MaterialTheme.typography.labelSmall,
                                         color = if (isNext)
-                                            MaterialTheme.colorScheme.onPrimaryContainer
-                                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        fontWeight = FontWeight.SemiBold
+                                            MaterialTheme.colorScheme.onSecondaryContainer
+                                        else MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                     Text(
                                         if (item.isLocked) Clip.LOCKED_PLACEHOLDER
@@ -125,7 +125,7 @@ fun QueueSheet(
                                         maxLines = 2,
                                         overflow = TextOverflow.Ellipsis,
                                         color = if (isNext)
-                                            MaterialTheme.colorScheme.onPrimaryContainer
+                                            MaterialTheme.colorScheme.onSecondaryContainer
                                         else MaterialTheme.colorScheme.onSurface
                                     )
                                 }
@@ -171,11 +171,11 @@ fun QueueSheet(
                 }
             }
 
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(Spacing.Md))
 
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(Spacing.Md)
             ) {
                 Button(
                     onClick = onCopyNext,

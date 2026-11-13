@@ -167,10 +167,6 @@ class ClipDetailViewModel @Inject constructor(
         }
     }
 
-    fun relock(clip: Clip) {
-        unlockedSet.update { it - clip.id }
-    }
-
     fun recordUsage() = viewModelScope.launch {
         state.value.clip?.let { repository.incrementUseCount(it.id) }
     }

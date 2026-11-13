@@ -1,5 +1,7 @@
 package com.clipvault.manager.ui.components
 
+import com.clipvault.manager.ui.theme.Motion
+import com.clipvault.manager.ui.theme.Spacing
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -60,19 +62,19 @@ fun StackedSnackbarHost(
             androidx.compose.runtime.key(item.id) {
                 AnimatedVisibility(
                     visible = true,
-                    enter = slideInVertically(initialOffsetY = { it }) + fadeIn(animationSpec = tween(150)),
-                    exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(animationSpec = tween(120))
+                    enter = slideInVertically(initialOffsetY = { it }) + fadeIn(animationSpec = tween(Motion.Short)),
+                    exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(animationSpec = tween(Motion.Short))
                 ) {
                     Snackbar(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.padding(horizontal = Spacing.Md, vertical = Spacing.Xs),
+                        shape = RoundedCornerShape(Spacing.Md),
                         action = item.actionLabel?.let { label ->
                             {
                                 TextButton(onClick = { item.onAction?.invoke() }) { Text(label) }
                             }
                         }
                     ) {
-                        Text(item.message)
+                        Text(item.message, style = MaterialTheme.typography.bodyMedium)
                     }
                 }
             }

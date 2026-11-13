@@ -1,0 +1,7 @@
+- New design aligned with the refreshed Stitch mockups across every screen
+- Four accent palettes: Indigo Bloom, Slate, Clay, Lavender (+ optional dynamic colors on Android 12+)
+- New Favorites tab with All / Pinned / Liked filters and a per-item menu
+- Reorder pinned clips from the Pinned header
+- AMOLED Black keeps cards, search fields, and the nav bar readable
+- Fixed: widget ignored "Mask sensitive content"; monitoring opt-out now sticks
+- 101 unit tests added

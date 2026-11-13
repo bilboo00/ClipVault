@@ -9,6 +9,7 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -23,11 +24,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import com.clipvault.manager.ui.theme.Motion
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 
@@ -44,13 +45,13 @@ fun AnimatedCopyButton(
     val tint by animateColorAsState(
         targetValue = if (isCopied) MaterialTheme.colorScheme.onPrimary
         else MaterialTheme.colorScheme.primary,
-        animationSpec = tween(200),
+        animationSpec = tween(Motion.Medium),
         label = "copy-tint"
     )
     val bg by animateColorAsState(
         targetValue = if (isCopied) MaterialTheme.colorScheme.primary
         else Color.Transparent,
-        animationSpec = tween(200),
+        animationSpec = tween(Motion.Medium),
         label = "copy-bg"
     )
 
@@ -60,8 +61,8 @@ fun AnimatedCopyButton(
             .minimumInteractiveComponentSize()
             .clip(CircleShape)
             .background(bg)
+            .clickable(role = Role.Button, onClick = onClick)
             .semantics {
-                role = Role.Button
                 contentDescription = if (isCopied) "Copied" else "Copy"
             },
         contentAlignment = Alignment.Center
@@ -69,8 +70,8 @@ fun AnimatedCopyButton(
         AnimatedContent(
             targetState = isCopied,
             transitionSpec = {
-                (scaleIn(initialScale = 0.5f) + fadeIn(animationSpec = tween(150))) togetherWith
-                    scaleOut(targetScale = 0.5f) + fadeOut(animationSpec = tween(150))
+                (scaleIn(initialScale = 0.5f) + fadeIn(animationSpec = tween(Motion.Short))) togetherWith
+                    scaleOut(targetScale = 0.5f) + fadeOut(animationSpec = tween(Motion.Short))
             },
             label = "copy-icon"
         ) { copied ->

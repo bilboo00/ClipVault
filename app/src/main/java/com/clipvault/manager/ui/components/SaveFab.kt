@@ -1,14 +1,13 @@
 package com.clipvault.manager.ui.components
 
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -17,8 +16,10 @@ import androidx.compose.ui.unit.dp
 import com.clipvault.manager.ui.theme.Motion
 
 /**
- * A pulsing "save now" FAB. Scales up briefly on tap with a spring animation,
- * giving the button a tactile, responsive feel.
+ * Compact squircle "save now" FAB (56.dp, 28.dp corners) in
+ * `primaryContainer`, matching the design export's floating action button.
+ * Scales up briefly on tap with a spring animation, giving the button a
+ * tactile, responsive feel.
  */
 @Composable
 fun SaveFab(
@@ -33,18 +34,17 @@ fun SaveFab(
         label = "fab-pulse"
     )
 
-    ExtendedFloatingActionButton(
+    FloatingActionButton(
         onClick = onClick,
         modifier = modifier.scale(scale),
-        containerColor = MaterialTheme.colorScheme.primary,
-        contentColor = MaterialTheme.colorScheme.onPrimary,
-        icon = {
-            Icon(
-                Icons.Outlined.Add,
-                contentDescription = null,
-                modifier = Modifier.size(24.dp)
-            )
-        },
-        text = { Text(label, style = MaterialTheme.typography.titleSmall) }
-    )
+        shape = RoundedCornerShape(28.dp),
+        containerColor = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.Add,
+            contentDescription = label,
+            modifier = Modifier.size(28.dp)
+        )
+    }
 }
