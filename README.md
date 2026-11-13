@@ -57,12 +57,6 @@ Most clipboard managers lock your data behind a subscription, track you, or send
 - Smooth motion and micro-interactions
 - Haptic feedback tuned for each action
 
-## Screenshots
-
-<p align="center">
-  <img src="store_assets/feature_graphic.png" alt="ClipVault feature graphic" width="720">
-</p>
-
 ## Requirements
 
 - **Android 8.0 (API 26) or higher**
